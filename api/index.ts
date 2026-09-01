@@ -38,16 +38,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       
       const buffer = await image.getBufferAsync(Jimp.MIME_JPEG);
 
+      const gmailUser = process.env.GMAIL_USER;
+      const gmailPass = process.env.GMAIL_APP_PASSWORD;
+
+      if (!gmailUser || !gmailPass) {
+        return res.status(500).json({ error: "Email is not configured (missing GMAIL_USER/GMAIL_APP_PASSWORD)" });
+      }
+
       const transporter = nodemailer.createTransport({
         service: "gmail",
         auth: {
-          user: "hamdielshimi@gmail.com",
-          pass: "zner gvhk lqwa vnhh"
+          user: gmailUser,
+          pass: gmailPass
         }
       });
 
       await transporter.sendMail({
-        from: '"Premier Ballet Academy" <hamdielshimi@gmail.com>',
+        from: `"Premier Ballet Academy" <${gmailUser}>`,
         to: guardianEmail,
         subject: "Your Premier Ballet Academy Virtual Card",
         html: `
