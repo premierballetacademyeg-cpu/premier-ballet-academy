@@ -4,6 +4,7 @@ import { router, publicProcedure } from "./_core/trpc.js";
 import { getDb } from "./db.js";
 import { members, families, cards } from "../drizzle/schema.js";
 import { eq, desc, ilike, or } from "drizzle-orm";
+import { generateAndSendVirtualCard } from "./email.js";
 
 export const appRouter = router({
   listParents: publicProcedure
@@ -88,9 +89,18 @@ export const appRouter = router({
         policyStatus: input.policyConfirmed ? 'accepted' : 'not_accepted',
       }).where(eq(members.id, member.id));
 
-      await generateAndSendVirtualCard(input.childName, member.memberCode, input.isLoyaltyMember ? 'loyalty_member' : 'member', input.guardianEmail);
-      // But we will wire this up fully next!
-      return { success: true };
+      const emailSent = await generateAndSendVirtualCard(
+        input.childName,
+        member.memberCode,
+        input.isLoyaltyMember ? 'loyalty_member' : 'member',
+        input.guardianEmail
+      );
+
+      if (!emailSent) {
+        console.error(`[submitForm] Registration saved for ${input.childName}, but virtual card email failed to send.`);
+      }
+
+      return { success: true, emailSent };
     }),
 });
 
