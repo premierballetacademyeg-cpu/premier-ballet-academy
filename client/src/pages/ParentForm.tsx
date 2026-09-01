@@ -85,7 +85,7 @@ export default function ParentForm() {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             childName: formData.childName,
-            memberId: (members || [])[0]?.memberCode || `M-${token}`,
+            memberId: `M-${token}`,
             tier: formData.isLoyaltyMember ? "loyalty_member" : "member",
             guardianEmail: formData.guardianEmail
           })
