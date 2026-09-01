@@ -24,6 +24,7 @@ type Parent = {
   id: number; familyCode: string; guardianName: string; phone: string;
   email: string; childName: string; membershipTier: string; policy: string;
   token: string; memberId: number | null; sent?: boolean; updatedAt: string;
+  cardEmailStatus?: string; cardEmailSentAt?: string;
 };
 
 const SENT_KEY = "pba_whatsapp_sent";
@@ -33,6 +34,30 @@ function getSentSet(): Set<string> {
 function markSent(familyCode: string) {
   const s = getSentSet(); s.add(familyCode);
   localStorage.setItem(SENT_KEY, JSON.stringify([...s]));
+}
+
+function getCardEmailBadgeColor(status?: string) {
+  switch (status) {
+    case "sent":
+      return "bg-green-100 text-green-800 border-green-300";
+    case "pending":
+      return "bg-yellow-100 text-yellow-800 border-yellow-300";
+    case "failed":
+      return "bg-red-100 text-red-800 border-red-300";
+    case "bounced":
+      return "bg-orange-100 text-orange-800 border-orange-300";
+    default:
+      return "bg-gray-100 text-gray-800 border-gray-300";
+  }
+}
+
+function formatCardEmailStatus(status?: string, sentAt?: string) {
+  if (!status) return "—";
+  const label = status.charAt(0).toUpperCase() + status.slice(1);
+  if (status === "sent" && sentAt) {
+    return `${label} • ${new Date(sentAt).toLocaleDateString()}`;
+  }
+  return label;
 }
 
 export default function ReceptionDashboard() {
@@ -58,15 +83,36 @@ export default function ReceptionDashboard() {
       ]);
       const [families, members] = await Promise.all([fRes.json(), mRes.json()]);
       const memberMap = new Map((members as any[]).map((m: any) => [m.familyId, m]));
+      
+      // Fetch card email delivery status from your backend
+      const cardEmailMap = new Map();
+      try {
+        const cardEmailRes = await fetch("/api/card-email-status", { method: "GET" });
+        if (cardEmailRes.ok) {
+          const cardEmailData = await cardEmailRes.json();
+          cardEmailData.forEach((delivery: any) => {
+            cardEmailMap.set(delivery.memberId, {
+              status: delivery.status,
+              sentAt: delivery.sentAt,
+            });
+          });
+        }
+      } catch (err) {
+        console.warn("Failed to fetch card email statuses:", err);
+      }
+
       setParents((families as any[]).map((f: any) => {
         const m: any = memberMap.get(f.id) || {};
+        const cardEmail = cardEmailMap.get(m.id);
         return {
           id: f.id, familyCode: f.familyCode, guardianName: f.guardianName || "Unknown",
           phone: f.guardianPhone || "", email: f.guardianEmail || "",
           childName: m.fullName || "", membershipTier: m.membershipTier || "member",
           policy: m.policyStatus || "pending", token: f.familyCode,
           memberId: m.id || null, sent: sentSet.has(f.familyCode),
-          updatedAt: m.updatedAt > f.updatedAt ? m.updatedAt : f.updatedAt
+          updatedAt: m.updatedAt > f.updatedAt ? m.updatedAt : f.updatedAt,
+          cardEmailStatus: cardEmail?.status,
+          cardEmailSentAt: cardEmail?.sentAt,
         };
       }));
     } catch (e: any) { toast.error("Failed to load: " + e.message); }
@@ -78,7 +124,7 @@ export default function ReceptionDashboard() {
   const handleSendWhatsApp = (parent: Parent) => {
     const phone = normalizePhone(parent.phone);
     const formLink = `${window.location.origin}/parent-form?token=${parent.token}`;
-    const msg = `Hi there,\n\nPremier Ballet Academy asks you to review and update the information we have for ${parent.childName || "your child"}, read the School Policy, and confirm it before submitting.\n\nPlease open your private form here:\n${formLink}\n\nThank you,\nPremier Ballet Academy`;
+    const msg = `Hi there,\n\nPremier Ballet Academy asks you to review and update the information we have for ${parent.childName || "your child"}, read the School Policy, and confirm it before su[...]
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank");
     markSent(parent.familyCode);
     setParents(prev => prev.map(p => p.familyCode === parent.familyCode ? { ...p, sent: true } : p));
@@ -99,7 +145,7 @@ export default function ReceptionDashboard() {
       const family = (await fRes.json())[0];
       await fetch(`${SUPABASE_URL}/rest/v1/members`, {
         method: "POST", headers: h,
-        body: JSON.stringify({ familyId: family.id, memberCode, fullName: newP.childName.trim(), normalizedName: normalized, membershipTier: "member", policyStatus: "not_accepted", membershipStatus: "not_enrolled", paymentStatus: "inactive", renewalStatus: "expired", cardStatus: "not_issued", medicalCondition: "no", branch: "Unassigned" }),
+        body: JSON.stringify({ familyId: family.id, memberCode, fullName: newP.childName.trim(), normalizedName: normalized, membershipTier: "member", policyStatus: "not_accepted", membershipStat[...]
       });
       toast.success(`✅ ${newP.childName} added! Family code: ${code}`);
       setShowAdd(false);
@@ -153,8 +199,8 @@ export default function ReceptionDashboard() {
     doc.text(`Generated: ${new Date().toLocaleString()}  |  ${rowsToExport.length} records`, 14, 22);
     autoTable(doc, {
       startY: 28,
-      head: [["#", "Family Code", "Child Name", "Guardian", "Phone", "Email", "Policy", "Tier", "Sent"]],
-      body: rowsToExport.map((p, i) => [i + 1, p.familyCode, p.childName, p.guardianName, p.phone, p.email, p.policy === "accepted" ? "Confirmed" : "Pending", p.membershipTier === "loyalty_member" ? "Loyalty" : "Member", p.sent ? "Yes" : "No"]),
+      head: [["#", "Family Code", "Child Name", "Guardian", "Phone", "Email", "Policy", "Tier", "WhatsApp Sent", "Card Email"]],
+      body: rowsToExport.map((p, i) => [i + 1, p.familyCode, p.childName, p.guardianName, p.phone, p.email, p.policy === "accepted" ? "Confirmed" : "Pending", p.membershipTier === "loyalty_member" ? "⭐ Loyalty" : "Member", p.sent ? "✓ Sent" : "Not sent", formatCardEmailStatus(p.cardEmailStatus, p.cardEmailSentAt)]),
       styles: { fontSize: 8 },
       headStyles: { fillColor: [120, 50, 80] },
     });
@@ -221,21 +267,22 @@ export default function ReceptionDashboard() {
               <TableHead>Phone</TableHead>
               <TableHead>Policy Status</TableHead>
               <TableHead>Tier</TableHead>
-              <TableHead>Sent</TableHead>
+              <TableHead>WhatsApp Sent</TableHead>
+              <TableHead>Card Email</TableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={8} className="text-center py-12"><Loader2 className="animate-spin mx-auto h-8 w-8 text-primary" /><p className="mt-2 text-gray-500 font-medium">Loading Database...</p></TableCell></TableRow>
+              <TableRow><TableCell colSpan={9} className="text-center py-12"><Loader2 className="animate-spin mx-auto h-8 w-8 text-primary" /><p className="mt-2 text-gray-500 font-medium">Loading[...]
             ) : filtered.length === 0 ? (
-              <TableRow><TableCell colSpan={8} className="text-center py-12 text-gray-500">No families found.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={9} className="text-center py-12 text-gray-500">No families found.</TableCell></TableRow>
             ) : filtered.map(parent => (
               <TableRow key={parent.id} className={selected.has(parent.id) ? "bg-blue-50" : ""}>
                 <TableCell><Checkbox checked={selected.has(parent.id)} onCheckedChange={() => toggleSelect(parent.id)} /></TableCell>
                 <TableCell className="font-medium">
                   {parent.childName || "—"}
-                  {isRecentlySubmitted(parent) && <span className="ml-2 inline-flex items-center text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider"><Bell className="w-3 h-3 mr-0.5" />New</span>}
+                  {isRecentlySubmitted(parent) && <span className="ml-2 inline-flex items-center text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wi[...]
                 </TableCell>
                 <TableCell className="text-gray-700">{parent.guardianName}</TableCell>
                 <TableCell className="text-gray-600 text-sm">{parent.phone || "—"}</TableCell>
@@ -253,6 +300,11 @@ export default function ReceptionDashboard() {
                   {parent.sent
                     ? <span className="text-xs text-green-600 font-bold bg-green-50 px-2 py-1 rounded">✓ Sent</span>
                     : <span className="text-xs text-gray-400 font-medium">Not sent</span>}
+                </TableCell>
+                <TableCell>
+                  <Badge variant="outline" className={`text-xs font-medium ${getCardEmailBadgeColor(parent.cardEmailStatus)}`}>
+                    {formatCardEmailStatus(parent.cardEmailStatus, parent.cardEmailSentAt)}
+                  </Badge>
                 </TableCell>
                 <TableCell>
                   <div className="flex gap-2">
@@ -279,20 +331,20 @@ export default function ReceptionDashboard() {
               <button onClick={() => setEditParent(null)}><X className="h-6 w-6 text-gray-400 hover:text-gray-600" /></button>
             </div>
             <div className="space-y-4">
-              <div><Label className="text-gray-700">Child Name</Label><Input value={editData.childName || ""} onChange={e => setEditData({...editData, childName: e.target.value})} className="mt-1" /></div>
-              <div><Label className="text-gray-700">Guardian Name</Label><Input value={editData.guardianName || ""} onChange={e => setEditData({...editData, guardianName: e.target.value})} className="mt-1" /></div>
+              <div><Label className="text-gray-700">Child Name</Label><Input value={editData.childName || ""} onChange={e => setEditData({...editData, childName: e.target.value})} className="mt-1[...]
+              <div><Label className="text-gray-700">Guardian Name</Label><Input value={editData.guardianName || ""} onChange={e => setEditData({...editData, guardianName: e.target.value})} classN[...]
               <div><Label className="text-gray-700">Phone</Label><Input value={editData.phone || ""} onChange={e => setEditData({...editData, phone: e.target.value})} className="mt-1" /></div>
               <div><Label className="text-gray-700">Email</Label><Input value={editData.email || ""} onChange={e => setEditData({...editData, email: e.target.value})} className="mt-1" /></div>
               <div>
                 <Label className="text-gray-700">Membership Tier</Label>
-                <select className="w-full border rounded-md px-3 py-2 text-sm mt-1 bg-white" value={editData.membershipTier} onChange={e => setEditData({...editData, membershipTier: e.target.value})}>
+                <select className="w-full border rounded-md px-3 py-2 text-sm mt-1 bg-white" value={editData.membershipTier} onChange={e => setEditData({...editData, membershipTier: e.target.valu[...]
                   <option value="member">Member</option>
                   <option value="loyalty_member">Loyalty Member</option>
                 </select>
               </div>
             </div>
             <div className="flex gap-3 pt-4 border-t">
-              <Button onClick={saveEdit} disabled={saving} className="flex-1 font-bold h-11">{saving ? <><Loader2 className="animate-spin h-5 w-5 mr-2"/>Saving...</> : <><Check className="h-5 w-5 mr-2"/>Save Changes</>}</Button>
+              <Button onClick={saveEdit} disabled={saving} className="flex-1 font-bold h-11">{saving ? <><Loader2 className="animate-spin h-5 w-5 mr-2"/>Saving...</> : <><Check className="h-5 w-5[...]
               <Button variant="outline" onClick={() => setEditParent(null)} className="h-11 px-6">Cancel</Button>
             </div>
           </div>
