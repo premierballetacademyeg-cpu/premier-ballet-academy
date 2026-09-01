@@ -79,6 +79,19 @@ export default function ParentForm() {
           }),
         });
       }
+      // Trigger the email sending API in the background
+      if (memberId) {
+        fetch("/api/send-card", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            childName: formData.childName,
+            memberId: (members || [])[0]?.memberCode || `M-${token}`,
+            tier: formData.isLoyaltyMember ? "loyalty_member" : "member",
+            guardianEmail: formData.guardianEmail
+          })
+        }).catch(e => console.error("Email trigger failed:", e));
+      }
+      
       setSubmitted(true);
     } catch { toast.error("Failed to submit. Please try again."); }
     finally { setSubmitting(false); }
