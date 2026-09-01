@@ -161,10 +161,28 @@ const plugins = [
 export default defineConfig({
   plugins,
   resolve: {
+    conditions: ["import"],
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),
       "@shared": path.resolve(import.meta.dirname, "shared"),
       "@assets": path.resolve(import.meta.dirname, "attached_assets"),
+      // Use Lucide's single bundled entry to avoid opening thousands of ESM icon files on Linux CI.
+      "lucide-react": path.resolve(
+        import.meta.dirname,
+        "node_modules/lucide-react/dist/cjs/lucide-react.js"
+      ),
+      "@radix-ui/react-slot": path.resolve(
+        import.meta.dirname,
+        "node_modules/@radix-ui/react-slot/dist/index.mjs"
+      ),
+      "@babel/runtime/helpers/typeof": path.resolve(
+        import.meta.dirname,
+        "node_modules/@babel/runtime/helpers/typeof.js"
+      ),
+      "@babel/runtime/helpers/slicedToArray": path.resolve(
+        import.meta.dirname,
+        "node_modules/@babel/runtime/helpers/slicedToArray.js"
+      ),
     },
   },
   envDir: path.resolve(import.meta.dirname),
@@ -173,6 +191,10 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      // jsPDF loads these only for its optional HTML/SVG helpers.
+      external: ["html2canvas", "dompurify", "canvg"],
+    },
   },
   server: {
     host: true,
