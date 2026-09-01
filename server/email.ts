@@ -42,18 +42,54 @@ export async function generateAndSendVirtualCard(
       text: `ID: ${memberId}`
     });
 
+    const buffer = await image.getBuffer("image/jpeg");
+
     if (process.env.NODE_ENV === "development") {
       const previewPath = path.resolve(process.cwd(), `preview_${childName.replace(/\s+/g, '_')}.jpeg`);
       await image.write(previewPath);
-      console.log(`[Email Mock] Saved virtual card to ${previewPath}`);
-    } else {
-      const buffer = await image.getBuffer("image/jpeg");
-      console.log(`[Email Mock] Generated virtual card buffer (${buffer.length} bytes)`);
+      console.log(`[Email] Dev mode - saved preview to ${previewPath} (email still sent to ${parentEmail})`);
     }
 
+    const gmailUser = process.env.GMAIL_USER;
+    const gmailPass = process.env.GMAIL_APP_PASSWORD;
+
+    if (!gmailUser || !gmailPass) {
+      console.error("[Email] Missing GMAIL_USER or GMAIL_APP_PASSWORD env vars - cannot send virtual card email");
+      return false;
+    }
+
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: gmailUser,
+        pass: gmailPass,
+      },
+    });
+
+    await transporter.sendMail({
+      from: `"Premier Ballet Academy" <${gmailUser}>`,
+      to: parentEmail,
+      subject: "Your Premier Ballet Academy Virtual Card",
+      html: `
+        <div style="font-family: sans-serif; color: #333; line-height: 1.6;">
+          <p>Dear Parent,</p>
+          <p>Thank you for submitting and confirming the School Policy. Your registration is complete!</p>
+          <p>Please find attached your child's official Virtual Card. You can save this to your phone for future reference.</p>
+          <p>Best regards,<br>Premier Ballet Academy</p>
+        </div>
+      `,
+      attachments: [
+        {
+          filename: `PBA_Card_${memberId}.jpeg`,
+          content: buffer,
+        },
+      ],
+    });
+
+    console.log(`[Email] Virtual card sent to ${parentEmail}`);
     return true;
   } catch (error) {
-    console.error("[Email] Failed to generate virtual card:", error);
+    console.error("[Email] Failed to generate/send virtual card:", error);
     return false;
   }
 }
