@@ -1,8 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import nodemailer from "nodemailer";
-import { Jimp, loadFont } from "jimp";
-import { SANS_32_BLACK, SANS_64_BLACK } from "jimp/fonts";
+import Jimp from "jimp";
 import path from "path";
 import fs from "fs";
 
@@ -31,13 +30,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const imageBuffer = fs.readFileSync(templatePath);
       const image = await Jimp.read(imageBuffer);
-      const font = await loadFont(SANS_64_BLACK);
-      const smallFont = await loadFont(SANS_32_BLACK);
+      const font = await Jimp.loadFont(Jimp.FONT_SANS_64_BLACK);
+      const smallFont = await Jimp.loadFont(Jimp.FONT_SANS_32_BLACK);
 
-      image.print({ font, x: 200, y: 350, text: childName });
-      image.print({ font: smallFont, x: 200, y: 450, text: `Member ID: ${memberId}` });
+      image.print(font, 200, 350, childName);
+      image.print(smallFont, 200, 450, `Member ID: ${memberId}`);
       
-      const buffer = await image.getBuffer("image/jpeg");
+      const buffer = await image.getBufferAsync(Jimp.MIME_JPEG);
 
       const transporter = nodemailer.createTransport({
         service: "gmail",
