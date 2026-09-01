@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, FileDown, Edit2, X, Check } from "lucide-react";
+import { Loader2, FileDown, Edit2, X, Check, Bell } from "lucide-react";
 import { toast } from "sonner";
 
 const SUPABASE_URL = "https://gpdxzjnjfqfchkpqptyu.supabase.co";
@@ -23,7 +23,7 @@ function normalizePhone(phone: string) {
 type Parent = {
   id: number; familyCode: string; guardianName: string; phone: string;
   email: string; childName: string; membershipTier: string; policy: string;
-  token: string; memberId: number | null; sent?: boolean;
+  token: string; memberId: number | null; sent?: boolean; updatedAt: string;
 };
 
 const SENT_KEY = "pba_whatsapp_sent";
@@ -51,9 +51,10 @@ export default function ReceptionDashboard() {
     setLoading(true);
     try {
       const sentSet = getSentSet();
+      // Use limit 3000 and order by createdAt descending to ensure we get newest additions like Andy More
       const [fRes, mRes] = await Promise.all([
-        fetch(`${SUPABASE_URL}/rest/v1/families?select=id,familyCode,guardianName,guardianPhone,guardianEmail&order=id.asc&limit=500`, { headers: h }),
-        fetch(`${SUPABASE_URL}/rest/v1/members?select=id,familyId,fullName,membershipTier,policyStatus&limit=500`, { headers: h }),
+        fetch(`${SUPABASE_URL}/rest/v1/families?select=id,familyCode,guardianName,guardianPhone,guardianEmail,updatedAt&order=createdAt.desc&limit=3000`, { headers: h }),
+        fetch(`${SUPABASE_URL}/rest/v1/members?select=id,familyId,fullName,membershipTier,policyStatus,updatedAt&limit=3000`, { headers: h }),
       ]);
       const [families, members] = await Promise.all([fRes.json(), mRes.json()]);
       const memberMap = new Map((members as any[]).map((m: any) => [m.familyId, m]));
@@ -65,6 +66,7 @@ export default function ReceptionDashboard() {
           childName: m.fullName || "", membershipTier: m.membershipTier || "member",
           policy: m.policyStatus || "pending", token: f.familyCode,
           memberId: m.id || null, sent: sentSet.has(f.familyCode),
+          updatedAt: m.updatedAt > f.updatedAt ? m.updatedAt : f.updatedAt
         };
       }));
     } catch (e: any) { toast.error("Failed to load: " + e.message); }
@@ -138,29 +140,39 @@ export default function ReceptionDashboard() {
   };
 
   const exportPDF = async () => {
-    const rows = filtered.filter(p => selected.has(p.id));
-    if (rows.length === 0) { toast.error("Select at least one record to export"); return; }
+    // If no specific rows are checked, export ALL currently filtered rows
+    const rowsToExport = selected.size > 0 ? filtered.filter(p => selected.has(p.id)) : filtered;
+    if (rowsToExport.length === 0) { toast.error("No records found to export."); return; }
+    
     const { jsPDF } = await import("jspdf");
     const autoTable = (await import("jspdf-autotable")).default;
     const doc = new jsPDF({ orientation: "landscape" });
     doc.setFontSize(16);
     doc.text("Premier Ballet Academy — Parent Report", 14, 15);
     doc.setFontSize(10);
-    doc.text(`Generated: ${new Date().toLocaleString()}  |  ${rows.length} records`, 14, 22);
+    doc.text(`Generated: ${new Date().toLocaleString()}  |  ${rowsToExport.length} records`, 14, 22);
     autoTable(doc, {
       startY: 28,
       head: [["#", "Family Code", "Child Name", "Guardian", "Phone", "Email", "Policy", "Tier", "Sent"]],
-      body: rows.map((p, i) => [i + 1, p.familyCode, p.childName, p.guardianName, p.phone, p.email, p.policy === "accepted" ? "Confirmed" : "Pending", p.membershipTier === "loyalty_member" ? "Loyalty" : "Member", p.sent ? "Yes" : "No"]),
+      body: rowsToExport.map((p, i) => [i + 1, p.familyCode, p.childName, p.guardianName, p.phone, p.email, p.policy === "accepted" ? "Confirmed" : "Pending", p.membershipTier === "loyalty_member" ? "Loyalty" : "Member", p.sent ? "Yes" : "No"]),
       styles: { fontSize: 8 },
       headStyles: { fillColor: [120, 50, 80] },
     });
     doc.save(`PBA-Report-${new Date().toISOString().slice(0,10)}.pdf`);
+    toast.success(`Exported ${rowsToExport.length} records to PDF!`);
   };
 
   const filtered = parents.filter(p => {
     const q = search.toLowerCase();
     return !q || [p.childName, p.guardianName, p.phone, p.familyCode, p.policy, p.email].some(v => String(v || "").toLowerCase().includes(q));
   });
+
+  // Check if a parent was updated in the last 24 hours and is accepted
+  const isRecentlySubmitted = (parent: Parent) => {
+    if (parent.policy !== "accepted" || !parent.updatedAt) return false;
+    const hours = (new Date().getTime() - new Date(parent.updatedAt).getTime()) / (1000 * 60 * 60);
+    return hours < 24;
+  };
 
   return (
     <div className="p-6 max-w-screen-xl mx-auto space-y-5">
@@ -171,13 +183,16 @@ export default function ReceptionDashboard() {
         </div>
         <div className="flex gap-2 flex-wrap justify-end">
           <Button variant="outline" onClick={loadData} disabled={loading}>Refresh</Button>
-          {selected.size > 0 && <Button variant="outline" onClick={exportPDF} className="gap-1"><FileDown className="h-4 w-4" />Export PDF ({selected.size})</Button>}
+          <Button variant="secondary" onClick={exportPDF} className="gap-1 bg-gray-100 hover:bg-gray-200">
+            <FileDown className="h-4 w-4" />
+            {selected.size > 0 ? `Export PDF (${selected.size})` : "Export Filtered to PDF"}
+          </Button>
           <Button onClick={() => setShowAdd(true)}>+ Add New Parent</Button>
         </div>
       </div>
 
       {showAdd && (
-        <div className="border rounded-lg p-5 bg-blue-50 space-y-4">
+        <div className="border rounded-lg p-5 bg-blue-50 space-y-4 shadow-sm">
           <h2 className="font-semibold text-lg">Add New Parent</h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div><Label>Child Name *</Label><Input placeholder="e.g. Sara Ahmed" value={newP.childName} onChange={e => setNewP({...newP, childName: e.target.value})} /></div>
@@ -191,12 +206,12 @@ export default function ReceptionDashboard() {
         </div>
       )}
 
-      <div className="flex gap-3 items-center">
-        <Input placeholder="Search name, phone, code, policy..." value={search} onChange={e => setSearch(e.target.value)} className="max-w-sm" />
-        {search && <span className="text-sm text-gray-500">{filtered.length} of {parents.length}</span>}
+      <div className="flex gap-3 items-center bg-gray-50 p-3 rounded-lg border">
+        <Input placeholder="Search name, phone, code, policy..." value={search} onChange={e => setSearch(e.target.value)} className="max-w-md bg-white" />
+        <span className="text-sm font-medium text-gray-600">{filtered.length} results</span>
       </div>
 
-      <div className="border rounded-md bg-white overflow-auto">
+      <div className="border rounded-md bg-white overflow-auto shadow-sm">
         <Table>
           <TableHeader>
             <TableRow>
@@ -204,7 +219,7 @@ export default function ReceptionDashboard() {
               <TableHead>Child Name</TableHead>
               <TableHead>Guardian</TableHead>
               <TableHead>Phone</TableHead>
-              <TableHead>Policy</TableHead>
+              <TableHead>Policy Status</TableHead>
               <TableHead>Tier</TableHead>
               <TableHead>Sent</TableHead>
               <TableHead>Actions</TableHead>
@@ -212,17 +227,20 @@ export default function ReceptionDashboard() {
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={8} className="text-center py-8"><Loader2 className="animate-spin mx-auto h-8 w-8 text-primary" /><p className="mt-2 text-gray-500">Loading...</p></TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="text-center py-12"><Loader2 className="animate-spin mx-auto h-8 w-8 text-primary" /><p className="mt-2 text-gray-500 font-medium">Loading Database...</p></TableCell></TableRow>
             ) : filtered.length === 0 ? (
-              <TableRow><TableCell colSpan={8} className="text-center py-8 text-gray-500">No families found.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="text-center py-12 text-gray-500">No families found.</TableCell></TableRow>
             ) : filtered.map(parent => (
               <TableRow key={parent.id} className={selected.has(parent.id) ? "bg-blue-50" : ""}>
                 <TableCell><Checkbox checked={selected.has(parent.id)} onCheckedChange={() => toggleSelect(parent.id)} /></TableCell>
-                <TableCell className="font-medium">{parent.childName || "—"}</TableCell>
-                <TableCell className="text-gray-600">{parent.guardianName}</TableCell>
+                <TableCell className="font-medium">
+                  {parent.childName || "—"}
+                  {isRecentlySubmitted(parent) && <span className="ml-2 inline-flex items-center text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider"><Bell className="w-3 h-3 mr-0.5" />New</span>}
+                </TableCell>
+                <TableCell className="text-gray-700">{parent.guardianName}</TableCell>
                 <TableCell className="text-gray-600 text-sm">{parent.phone || "—"}</TableCell>
                 <TableCell>
-                  <Badge variant={parent.policy === "accepted" ? "default" : "destructive"} className="text-xs">
+                  <Badge variant={parent.policy === "accepted" ? "default" : "destructive"} className={parent.policy === "accepted" ? "bg-green-600 hover:bg-green-700" : ""}>
                     {parent.policy === "accepted" ? "✓ Confirmed" : "Pending"}
                   </Badge>
                 </TableCell>
@@ -233,16 +251,16 @@ export default function ReceptionDashboard() {
                 </TableCell>
                 <TableCell>
                   {parent.sent
-                    ? <span className="text-xs text-green-600 font-medium">✓ Sent</span>
-                    : <span className="text-xs text-gray-400">Not sent</span>}
+                    ? <span className="text-xs text-green-600 font-bold bg-green-50 px-2 py-1 rounded">✓ Sent</span>
+                    : <span className="text-xs text-gray-400 font-medium">Not sent</span>}
                 </TableCell>
                 <TableCell>
-                  <div className="flex gap-1">
-                    <Button variant="outline" size="sm" className="text-xs h-7" onClick={() => handleSendWhatsApp(parent)}>
-                      {parent.sent ? "Resend" : "Send WhatsApp"}
+                  <div className="flex gap-2">
+                    <Button variant={parent.sent ? "secondary" : "default"} size="sm" className="text-xs h-8" onClick={() => handleSendWhatsApp(parent)}>
+                      {parent.sent ? "Resend" : "WhatsApp"}
                     </Button>
-                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(parent)}>
-                      <Edit2 className="h-3.5 w-3.5" />
+                    <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => openEdit(parent)}>
+                      <Edit2 className="h-4 w-4 text-gray-600" />
                     </Button>
                   </div>
                 </TableCell>
@@ -254,27 +272,28 @@ export default function ReceptionDashboard() {
 
       {/* EDIT MODAL */}
       {editParent && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
-            <div className="flex justify-between items-center">
-              <h2 className="text-lg font-bold">Edit: {editParent.childName || editParent.familyCode}</h2>
-              <button onClick={() => setEditParent(null)}><X className="h-5 w-5 text-gray-400 hover:text-gray-600" /></button>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-5">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h2 className="text-xl font-bold">Edit Profile</h2>
+              <button onClick={() => setEditParent(null)}><X className="h-6 w-6 text-gray-400 hover:text-gray-600" /></button>
             </div>
-            <div className="space-y-3">
-              <div><Label>Child Name</Label><Input value={editData.childName || ""} onChange={e => setEditData({...editData, childName: e.target.value})} /></div>
-              <div><Label>Guardian Name</Label><Input value={editData.guardianName || ""} onChange={e => setEditData({...editData, guardianName: e.target.value})} /></div>
-              <div><Label>Phone</Label><Input value={editData.phone || ""} onChange={e => setEditData({...editData, phone: e.target.value})} /></div>
-              <div><Label>Email</Label><Input value={editData.email || ""} onChange={e => setEditData({...editData, email: e.target.value})} /></div>
-              <div><Label>Tier</Label>
-                <select className="w-full border rounded px-3 py-2 text-sm mt-1" value={editData.membershipTier} onChange={e => setEditData({...editData, membershipTier: e.target.value})}>
+            <div className="space-y-4">
+              <div><Label className="text-gray-700">Child Name</Label><Input value={editData.childName || ""} onChange={e => setEditData({...editData, childName: e.target.value})} className="mt-1" /></div>
+              <div><Label className="text-gray-700">Guardian Name</Label><Input value={editData.guardianName || ""} onChange={e => setEditData({...editData, guardianName: e.target.value})} className="mt-1" /></div>
+              <div><Label className="text-gray-700">Phone</Label><Input value={editData.phone || ""} onChange={e => setEditData({...editData, phone: e.target.value})} className="mt-1" /></div>
+              <div><Label className="text-gray-700">Email</Label><Input value={editData.email || ""} onChange={e => setEditData({...editData, email: e.target.value})} className="mt-1" /></div>
+              <div>
+                <Label className="text-gray-700">Membership Tier</Label>
+                <select className="w-full border rounded-md px-3 py-2 text-sm mt-1 bg-white" value={editData.membershipTier} onChange={e => setEditData({...editData, membershipTier: e.target.value})}>
                   <option value="member">Member</option>
                   <option value="loyalty_member">Loyalty Member</option>
                 </select>
               </div>
             </div>
-            <div className="flex gap-2 pt-2">
-              <Button onClick={saveEdit} disabled={saving} className="flex-1">{saving ? <><Loader2 className="animate-spin h-4 w-4 mr-1"/>Saving...</> : <><Check className="h-4 w-4 mr-1"/>Save Changes</>}</Button>
-              <Button variant="outline" onClick={() => setEditParent(null)}>Cancel</Button>
+            <div className="flex gap-3 pt-4 border-t">
+              <Button onClick={saveEdit} disabled={saving} className="flex-1 font-bold h-11">{saving ? <><Loader2 className="animate-spin h-5 w-5 mr-2"/>Saving...</> : <><Check className="h-5 w-5 mr-2"/>Save Changes</>}</Button>
+              <Button variant="outline" onClick={() => setEditParent(null)} className="h-11 px-6">Cancel</Button>
             </div>
           </div>
         </div>
