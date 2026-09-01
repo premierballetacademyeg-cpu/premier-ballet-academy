@@ -1,12 +1,8 @@
-import { createClient } from "@supabase/supabase-js";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import nodemailer from "nodemailer";
 import Jimp from "jimp";
 import path from "path";
 import fs from "fs";
-
-const SUPABASE_URL = "https://gpdxzjnjfqfchkpqptyu.supabase.co";
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || "sb_publishable_HMHsWkaV0Y0UtKHDE6T5tw_ahmNsXkM";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -15,11 +11,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   const url = req.url || "";
-  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-  if (url.includes("/api/send-card")) {
+  // Vercel rewrites /api/send-card to this function, so req.url can be either
+  // the public path or /api/index.ts. The method is the reliable discriminator.
+  if (req.method === "POST") {
     try {
       const { childName, memberId, tier, guardianEmail } = req.body || {};
+
+      if (
+        typeof childName !== "string" ||
+        !childName.trim() ||
+        typeof memberId !== "string" ||
+        !memberId.trim() ||
+        !["member", "loyalty_member"].includes(tier) ||
+        typeof guardianEmail !== "string" ||
+        !guardianEmail.trim()
+      ) {
+        return res.status(400).json({ error: "childName, memberId, tier, and guardianEmail are required" });
+      }
       
       const templateName = tier === "loyalty_member" ? "PBA - Loyalty Member.jpeg" : "PBA - Member.jpeg";
       const templatePath = path.resolve(process.cwd(), templateName);
@@ -38,8 +47,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       
       const buffer = await image.getBufferAsync(Jimp.MIME_JPEG);
 
-      const gmailUser = process.env.GMAIL_USER;
-      const gmailPass = process.env.GMAIL_APP_PASSWORD;
+      const gmailUser = process.env.GMAIL_USER?.trim();
+      // App passwords are often copied from Google with spaces between groups.
+      const gmailPass = process.env.GMAIL_APP_PASSWORD?.replace(/\s/g, "");
+      const recipientEmail = guardianEmail.trim();
 
       if (!gmailUser || !gmailPass) {
         return res.status(500).json({ error: "Email is not configured (missing GMAIL_USER/GMAIL_APP_PASSWORD)" });
@@ -55,7 +66,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       await transporter.sendMail({
         from: `"Premier Ballet Academy" <${gmailUser}>`,
-        to: guardianEmail,
+        to: recipientEmail,
         subject: "Your Premier Ballet Academy Virtual Card",
         html: `
           <div style="font-family: sans-serif; color: #333; line-height: 1.6;">
@@ -80,5 +91,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   }
 
-  return res.status(404).json({ error: "Unknown endpoint", url });
+  return res.status(405).json({ error: "Method not allowed", url });
 }

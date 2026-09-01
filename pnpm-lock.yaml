@@ -22,6 +22,9 @@ importers:
       '@aws-sdk/s3-request-presigner':
         specifier: ^3.693.0
         version: 3.907.0
+      '@babel/runtime':
+        specifier: ^7.29.7
+        version: 7.29.7
       '@hookform/resolvers':
         specifier: ^5.2.2
         version: 5.2.2(react-hook-form@7.64.0(react@19.2.1))
@@ -154,6 +157,12 @@ importers:
       express:
         specifier: ^4.21.2
         version: 4.21.2
+      fast-png:
+        specifier: ^6.4.0
+        version: 6.4.0
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
       framer-motion:
         specifier: ^12.23.22
         version: 12.23.22(react-dom@19.2.1(react@19.2.1))(react@19.2.1)

@@ -2,6 +2,14 @@
   "framework": "vite",
   "buildCommand": "pnpm run build",
   "outputDirectory": "dist/public",
+  "functions": {
+    "api/index.ts": {
+      "includeFiles": [
+        "PBA - Member.jpeg",
+        "PBA - Loyalty Member.jpeg"
+      ]
+    }
+  },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index.ts" },
     { "source": "/(.*)", "destination": "/index.html" }

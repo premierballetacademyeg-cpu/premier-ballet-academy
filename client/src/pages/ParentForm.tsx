@@ -18,6 +18,20 @@ const SCHOOL_POLICY = [
   { title: "5. Photography & Social Media", text: "Premier Ballet Academy records classes and performances for training and promotional purposes, and content may be shared on social media.\n\nIf you prefer that your child does not appear in any media, please type 'Opt me out from media' in the box below. While we make every effort to respect your preferences, should your child accidentally appear in any content, we guarantee its immediate removal upon request." }
 ];
 
+async function requireSuccessfulResponse(response: Response, fallback: string) {
+  if (response.ok) return;
+
+  let message = fallback;
+  try {
+    const body = await response.json();
+    if (typeof body?.error === "string") message = body.error;
+    if (typeof body?.message === "string") message = body.message;
+  } catch {
+    // Keep the fallback when the response is not JSON.
+  }
+  throw new Error(message);
+}
+
 export default function ParentForm() {
   const token = new URLSearchParams(window.location.search).get("token") || "";
   const [loading, setLoading] = useState(true);
@@ -63,37 +77,43 @@ export default function ParentForm() {
     e.preventDefault();
     if (!formData.policyConfirmed) { toast.error("Please open and confirm the School Policy at the bottom."); return; }
     if (!familyId) { toast.error("Invalid form link."); return; }
+    if (!memberId) { toast.error("No student record was found for this form."); return; }
     setSubmitting(true);
     try {
-      await fetch(`${SUPABASE_URL}/rest/v1/families?id=eq.${familyId}`, {
+      const familyResponse = await fetch(`${SUPABASE_URL}/rest/v1/families?id=eq.${familyId}`, {
         method: "PATCH", headers: h,
         body: JSON.stringify({ guardianName: formData.guardianName, guardianPhone: formData.phone, guardianEmail: formData.guardianEmail, notes: formData.mediaOptOut }),
       });
-      if (memberId) {
-        await fetch(`${SUPABASE_URL}/rest/v1/members?id=eq.${memberId}`, {
-          method: "PATCH", headers: h,
-          body: JSON.stringify({
-            fullName: formData.childName, birthDate: formData.birthDate || null,
-            membershipTier: formData.isLoyaltyMember ? "loyalty_member" : "member",
-            policyStatus: "accepted", medicalCondition: formData.medicalCond || "no",
-          }),
-        });
-      }
-      // Trigger the email sending API in the background
-      if (memberId) {
-        fetch("/api/send-card", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            childName: formData.childName,
-            memberId: `M-${token}`,
-            tier: formData.isLoyaltyMember ? "loyalty_member" : "member",
-            guardianEmail: formData.guardianEmail
-          })
-        }).catch(e => console.error("Email trigger failed:", e));
-      }
+      await requireSuccessfulResponse(familyResponse, "Could not save the parent information.");
+      const memberResponse = await fetch(`${SUPABASE_URL}/rest/v1/members?id=eq.${memberId}`, {
+        method: "PATCH", headers: h,
+        body: JSON.stringify({
+          fullName: formData.childName, birthDate: formData.birthDate || null,
+          membershipTier: formData.isLoyaltyMember ? "loyalty_member" : "member",
+          policyStatus: "accepted", medicalCondition: formData.medicalCond || "no",
+        }),
+      });
+      await requireSuccessfulResponse(memberResponse, "Could not save the student information.");
+
+      // Wait for the server to accept the email before showing confirmation.
+      const emailResponse = await fetch("/api/send-card", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          childName: formData.childName,
+          memberId: `M-${token}`,
+          tier: formData.isLoyaltyMember ? "loyalty_member" : "member",
+          guardianEmail: formData.guardianEmail
+        })
+      });
+      await requireSuccessfulResponse(
+        emailResponse,
+        "Your information was saved, but the virtual card email could not be sent. Please try submitting again."
+      );
       
       setSubmitted(true);
-    } catch { toast.error("Failed to submit. Please try again."); }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to submit. Please try again.");
+    }
     finally { setSubmitting(false); }
   };
 
@@ -106,7 +126,7 @@ export default function ParentForm() {
         <div className="text-6xl">✅</div>
         <h2 className="text-3xl font-bold text-gray-900">Thank You!</h2>
         <p className="text-lg text-gray-600">Your information has been submitted successfully.</p>
-        <p className="text-sm text-gray-500">Premier Ballet Academy will contact you shortly.</p>
+        <p className="text-sm text-gray-500">Your virtual card has been sent to {formData.guardianEmail}.</p>
       </div>
     </div>
   );

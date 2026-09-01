@@ -124,7 +124,7 @@ export default function ReceptionDashboard() {
   const handleSendWhatsApp = (parent: Parent) => {
     const phone = normalizePhone(parent.phone);
     const formLink = `${window.location.origin}/parent-form?token=${parent.token}`;
-    const msg = `Hi there,\n\nPremier Ballet Academy asks you to review and update the information we have for ${parent.childName || "your child"}, read the School Policy, and confirm it before su[...]
+    const msg = `Hi there,\n\nPremier Ballet Academy asks you to review and update the information we have for ${parent.childName || "your child"}, read the School Policy, and confirm it before submitting.\n\nPlease open your private form here:\n${formLink}\n\nThank you,\nPremier Ballet Academy`;
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank");
     markSent(parent.familyCode);
     setParents(prev => prev.map(p => p.familyCode === parent.familyCode ? { ...p, sent: true } : p));
@@ -145,7 +145,7 @@ export default function ReceptionDashboard() {
       const family = (await fRes.json())[0];
       await fetch(`${SUPABASE_URL}/rest/v1/members`, {
         method: "POST", headers: h,
-        body: JSON.stringify({ familyId: family.id, memberCode, fullName: newP.childName.trim(), normalizedName: normalized, membershipTier: "member", policyStatus: "not_accepted", membershipStat[...]
+        body: JSON.stringify({ familyId: family.id, memberCode, fullName: newP.childName.trim(), normalizedName: normalized, membershipTier: "member", policyStatus: "not_accepted", membershipStatus: "not_enrolled", paymentStatus: "inactive", renewalStatus: "expired", cardStatus: "not_issued", medicalCondition: "no", branch: "Unassigned" }),
       });
       toast.success(`✅ ${newP.childName} added! Family code: ${code}`);
       setShowAdd(false);
@@ -274,7 +274,7 @@ export default function ReceptionDashboard() {
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={9} className="text-center py-12"><Loader2 className="animate-spin mx-auto h-8 w-8 text-primary" /><p className="mt-2 text-gray-500 font-medium">Loading[...]
+              <TableRow><TableCell colSpan={9} className="text-center py-12"><Loader2 className="animate-spin mx-auto h-8 w-8 text-primary" /><p className="mt-2 text-gray-500 font-medium">Loading Database...</p></TableCell></TableRow>
             ) : filtered.length === 0 ? (
               <TableRow><TableCell colSpan={9} className="text-center py-12 text-gray-500">No families found.</TableCell></TableRow>
             ) : filtered.map(parent => (
@@ -282,7 +282,7 @@ export default function ReceptionDashboard() {
                 <TableCell><Checkbox checked={selected.has(parent.id)} onCheckedChange={() => toggleSelect(parent.id)} /></TableCell>
                 <TableCell className="font-medium">
                   {parent.childName || "—"}
-                  {isRecentlySubmitted(parent) && <span className="ml-2 inline-flex items-center text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wi[...]
+                  {isRecentlySubmitted(parent) && <span className="ml-2 inline-flex items-center text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider"><Bell className="w-3 h-3 mr-0.5" />New</span>}
                 </TableCell>
                 <TableCell className="text-gray-700">{parent.guardianName}</TableCell>
                 <TableCell className="text-gray-600 text-sm">{parent.phone || "—"}</TableCell>
@@ -331,20 +331,20 @@ export default function ReceptionDashboard() {
               <button onClick={() => setEditParent(null)}><X className="h-6 w-6 text-gray-400 hover:text-gray-600" /></button>
             </div>
             <div className="space-y-4">
-              <div><Label className="text-gray-700">Child Name</Label><Input value={editData.childName || ""} onChange={e => setEditData({...editData, childName: e.target.value})} className="mt-1[...]
-              <div><Label className="text-gray-700">Guardian Name</Label><Input value={editData.guardianName || ""} onChange={e => setEditData({...editData, guardianName: e.target.value})} classN[...]
+              <div><Label className="text-gray-700">Child Name</Label><Input value={editData.childName || ""} onChange={e => setEditData({...editData, childName: e.target.value})} className="mt-1" /></div>
+              <div><Label className="text-gray-700">Guardian Name</Label><Input value={editData.guardianName || ""} onChange={e => setEditData({...editData, guardianName: e.target.value})} className="mt-1" /></div>
               <div><Label className="text-gray-700">Phone</Label><Input value={editData.phone || ""} onChange={e => setEditData({...editData, phone: e.target.value})} className="mt-1" /></div>
               <div><Label className="text-gray-700">Email</Label><Input value={editData.email || ""} onChange={e => setEditData({...editData, email: e.target.value})} className="mt-1" /></div>
               <div>
                 <Label className="text-gray-700">Membership Tier</Label>
-                <select className="w-full border rounded-md px-3 py-2 text-sm mt-1 bg-white" value={editData.membershipTier} onChange={e => setEditData({...editData, membershipTier: e.target.valu[...]
+                <select className="w-full border rounded-md px-3 py-2 text-sm mt-1 bg-white" value={editData.membershipTier} onChange={e => setEditData({...editData, membershipTier: e.target.value})}>
                   <option value="member">Member</option>
                   <option value="loyalty_member">Loyalty Member</option>
                 </select>
               </div>
             </div>
             <div className="flex gap-3 pt-4 border-t">
-              <Button onClick={saveEdit} disabled={saving} className="flex-1 font-bold h-11">{saving ? <><Loader2 className="animate-spin h-5 w-5 mr-2"/>Saving...</> : <><Check className="h-5 w-5[...]
+              <Button onClick={saveEdit} disabled={saving} className="flex-1 font-bold h-11">{saving ? <><Loader2 className="animate-spin h-5 w-5 mr-2"/>Saving...</> : <><Check className="h-5 w-5 mr-2"/>Save Changes</>}</Button>
               <Button variant="outline" onClick={() => setEditParent(null)} className="h-11 px-6">Cancel</Button>
             </div>
           </div>
