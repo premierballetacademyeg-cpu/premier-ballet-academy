@@ -1,0 +1,95 @@
+# Project TODO
+
+- [x] Analyze and normalize the 25 submitted Excel class sheets, preserve valid legacy fields, and flag likely duplicate member records for review.
+- [x] Design protected source-of-truth database tables for families, children, class enrollments, membership state, payment history, wallets, loyalty cards, offers, immutable transactions, sync events, and duplicate-review cases.
+- [x] Build an admin-only dashboard with central member search, class enrollment visibility, membership/payment visibility, and operational summaries.
+- [x] Build matching record-completion and new-family registration forms that write to the same backend and prevent accidental duplicate records.
+- [x] Implement digital loyalty card issuing and management with unique member IDs, QR payloads, card status, and membership eligibility.
+- [x] Implement a dynamic admin-managed offers catalog with price/discount rules, active status, and no-code editing.
+- [x] Implement POS search by name, phone, manual card ID, and QR input; wallet top-up/deduction; eligible-offer application; and immutable transaction records.
+- [x] Implement offline-first POS queue with visible pending status, deterministic retry, and automatic sync when the device reconnects.
+- [x] Supersede the originally planned Airtable external-sync layer with the requested Google Sheets Apps Script mirror while retaining the protected application database as the authoritative source.
+- [x] Import the supplied member and class data after normalization, without hardcoding invented records, and surface unresolved duplicates for review.
+- [x] Add automated tests covering authorization, duplicate prevention, transactions, and offer eligibility.
+- [x] Verify the responsive interface visually, review todo status, and save a delivery checkpoint.
+- [x] Replace the Airtable external mirror with a Google Sheets Apps Script webhook integration while retaining the protected application database as the source of truth.
+- [x] Produce a copy-paste Apps Script deployment file with shared-secret validation, append-only event storage, and documented sheet columns.
+- [x] Connect the application to the user-provided Apps Script Web App URL and verify an end-to-end mirror event.
+- [x] Add automated runner coverage for Google Sheets delivery success and external-sync event state transitions.
+- [x] Add focused automated coverage for registration duplicate conflict handling and POS idempotent replay behavior, including router-level assertions.
+- [x] Add configurable in-app admin notifications for key member, POS, duplicate-review, and Google Sheets sync events.
+- [x] Add a notification center with read status, category preferences, and On/Off controls for automatic notification categories.
+- [x] Test notification generation, read-state updates, and preference enforcement.
+- [x] Add a secure public parent-registration link and English form that saves approved submissions into the central member database.
+- [x] Add mandatory policy acceptance with version, timestamp, and consent record before any public registration can be submitted.
+- [x] Restrict loyalty card issuance and activation to Loyalty Member records, alongside the protected offer and pricing rules.
+- [x] Redesign the application in English using the supplied Premier Ballet logo, website reference, and brand identity.
+- [x] Create refined virtual-card designs for Member and Loyalty Member after receiving the approved brand materials.
+- [x] Implement distinct Member and Loyalty Member virtual cards that display the parent first name, student first name, and Member ID.
+- [x] Adapt the virtual-card component to match the approved black-and-gold Loyalty and black-and-blush Member reference designs, including the dancer and lower-wave composition.
+- [x] Rename the public membership choices to Member and Loyalty Member throughout the registration flow and virtual-card design.
+- [x] Add router-level POS tests proving regular Members are denied loyalty offers and eligible Loyalty Members with active cards receive the protected benefit path.
+- [x] Require child name, date of birth, guardian name, guardian email, guardian phone, emergency phone, regular school, medical status, and medical details when applicable.
+- [x] Add secure parent ID screenshot upload and associate the file with the central member record.
+- [x] Add a mandatory policy pop-up and record policy acceptance state, version, and timestamp in the central backend and Google Sheets mirror.
+- [x] Show unresolved policy acceptance prominently in red on the member profile for administrators.
+- [x] Generate unique secure update links for existing parents that prefill their current record by Member ID and keep them Pending until submission and policy acceptance.
+- [x] Build the public existing-parent update page that pre-fills the matching member record and turns the admin status from red Pending to Confirmed after accepted policy submission.
+- [x] Refine the public Parent page into the approved English Premier Ballet experience with a clear mobile-first profile-update flow and policy confirmation state.
+- [x] Verify and polish any remaining staff-facing routes so the internal employee interface is consistently English across all operational pages.
+- [x] Redesign the remaining staff pages in English: POS and payments, Membership Cards, Sync Centre, Registration, Offers, Notifications, and Documents.
+- [x] Perform an authenticated visual QA pass across all protected staff routes to confirm the real in-dashboard pages render with consistent English copy, navigation, and staff-facing UX.
+- [x] Supersede the old OAuth role-resolution retest with the deployed database-backed staff PIN login.
+- [x] Supersede the intended-account dashboard test with individual staff PIN sessions, which now control protected staff access.
+- [x] Verify and report whether the app’s member records are the real Excel-imported records rather than demo data.
+- [ ] Sign in as an administrator in the published app and capture desktop/mobile verification of the actual dashboard shell to confirm the sidebar no longer overlaps content.
+- [x] Replace the previous Instapay URL with https://ipn.eg/S/anja87/instapay/0ia8Zv in the application payment flow and the supplied Google Apps Script source.
+- [ ] Update the deployed Google Sheets workbook Configuration value for INSTAPAY_PAYMENT_URL to the new official link.
+- [x] Inspect Nouran.xlsx, Mahinour.xlsx, and Viki.xlsx and stage their fields for safe matching to current parent records.
+- [x] Reconcile the already received Nouran, Mahinour, and Viki lists against the central database using phone, email, name, and date-of-birth matching before any import.
+- [ ] Apply any additional current-parent lists received later through the same deduplicated import process.
+- [x] Replace the Member card background with the newly supplied platinum/rose design and retain the existing black-and-gold Loyalty Member design.
+- [x] Verify the supplied Premier Ballet Academy logo in the responsive staff layout at both desktop and true mobile widths.
+- [ ] Incorporate any additional parent sheets received later and recalculate the final deduplicated parent total.
+- [x] Restore the Google Sheets Members roster mirror and verify a real existing-parent update is accepted after recovery.
+- [ ] Verify and document a real post-import new-parent registration reaching the configured Google Sheet after the final Apps Script deployment.
+- [x] Update the configured Google Sheets Web App endpoint to the newly deployed URL and verify the roster snapshot reaches the workbook.
+- [x] Initialize the bound Google Sheet with `setupPremierBalletWorkbook`, send the authoritative roster, and confirm rows are visibly present in the Members tab.
+- [x] Align `GOOGLE_SHEETS_SYNC_SECRET` in the protected application with the new `INITIAL_SHARED_SECRET` used by the current Apps Script deployment.
+- [x] Replace the configured Apps Script endpoint with the newly supplied `/exec` URL and retry the authenticated roster mirror.
+- [x] Remove the previously published policy document and replace it with the correct approved policy attachment supplied by the Academy.
+- [x] Update the public new-parent WhatsApp registration form so child name, birth date, guardian name, guardian email, guardian phone, emergency phone, regular school, medical status, and medical details when applicable are visibly mandatory.
+- [x] Replace the parent-facing registration and existing-parent update policy content with the approved PBAPOLICY2 document and preserve recorded consent versioning.
+- [x] Correct existing-parent WhatsApp messages to greet the Parent / Guardian by first name rather than extracting an unrelated child-name fragment.
+- [x] Add a compact, secure path for personal parent-update links and use a compact public path for new-parent registration sharing.
+- [x] Add Premier Ballet Academy link-preview metadata so WhatsApp can display the Academy logo and description for shared parent links when supported.
+- [x] End a normal existing-parent profile update with a thank-you confirmation rather than an automatic Instapay handoff.
+- [x] Require a Loyalty Member upgrade benefits dialog and acknowledgement before offering the Instapay handoff for an existing parent.
+- [x] Fix the managed preview Vite WebSocket/HMR connection failure reported in the browser console.
+- [x] Diagnose and permanently resolve the recurring managed-preview Vite WebSocket connection errors observed after the earlier HMR repair.
+- [x] Add the safely reconciled Nouran, Mahinour, and Viki records to the live application with review-safe duplicate controls.
+- [x] Add a clearly labeled staff action to copy or open WhatsApp with the public new-parent registration link and policy message.
+- [x] Restrict parent policy consent to the policy pop-up acknowledgement and use that acknowledgement as the only consent gate for form submission.
+- [x] Add live guardian-phone duplicate detection to public registration, disable the remaining form controls when a duplicate is found, and re-enable them only after the phone number changes to an unused number.
+- [x] Replace free-text Branch entry in public parent flows with the controlled options Maadi, New Cairo, and Zayed.
+- [x] Verify that Parent Updates exposes an issued personal link and WhatsApp action for each selected current Parent.
+- [x] Add anja87@instapay to the persistent administrator email allowlist.
+- [x] Reset Anja’s individual staff PIN to the administrator-provided value and verify the account remains active.
+- [x] Fix the reported loss of administrator access when navigating between protected staff tabs by replacing the fragile staff OAuth path with database-backed PIN sessions.
+- [x] Replace the current staff sign-in path with individual four-digit PIN access for reception staff.
+- [x] Add a System Admin employee-management area to add, disable, remove, and reset staff PINs.
+- [x] Add router-level tests proving staff removal succeeds only for System Admin, rejects reception access, and protects the last active System Admin.
+- [x] Audit staff identity on POS and critical member-management operations under the new PIN sessions, with a System Admin accountability view.
+- [x] Create active PIN accounts for Hamdi, Anja, Ali, and Habiba using the administrator-supplied individual PINs.
+- [x] Add a centralized Branch field to member records and public Parent update submissions.
+- [x] Add a staff Reports workspace with filters for registration date, Member or Loyalty Member status, and Branch.
+- [x] Add report summary totals and CSV export for the filtered member records.
+- [x] Test report filtering and totals against the imported real member data.
+- [x] Preserve a complete update audit trail while mapping approved changed fields back to the same central Member ID without creating duplicates.
+- [x] Record an explicit fulfillment effect for approved other payment requests alongside registration, membership, and tuition.
+- [x] Add router-level tests for membership approval and Loyalty Member card activation, alongside all payment-type approval effects.
+- [x] Configure the supplied official Instapay link in the parent payment flow and Google Sheets configuration.
+- [x] Produce a copy-paste Google Apps Script that creates the complete parent, policy, membership, update-link, and payment-review sheet structure automatically.
+- [x] Add the supplied official PDF as a managed document with a stable share link for inclusion in pre-filled WhatsApp messages.
+- [x] Add a WhatsApp document-sharing action that lets staff select recipients and open WhatsApp Web with a pre-filled official-document message.
+- [x] Replace the Member card background with the newly approved black-and-rose design while preserving dynamic Parent, student, and Member ID fields.
