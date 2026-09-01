@@ -1,12 +1,16 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Loader2 } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Loader2, FileDown, Edit2, X, Check } from "lucide-react";
+import { toast } from "sonner";
 
 const SUPABASE_URL = "https://gpdxzjnjfqfchkpqptyu.supabase.co";
 const SUPABASE_KEY = "sb_publishable_HMHsWkaV0Y0UtKHDE6T5tw_ahmNsXkM";
+const h = { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json", Prefer: "return=representation" };
 
 function normalizePhone(phone: string) {
   let d = (phone || "").replace(/\D/g, "");
@@ -16,161 +20,265 @@ function normalizePhone(phone: string) {
   return d;
 }
 
+type Parent = {
+  id: number; familyCode: string; guardianName: string; phone: string;
+  email: string; childName: string; membershipTier: string; policy: string;
+  token: string; memberId: number | null; sent?: boolean;
+};
+
+const SENT_KEY = "pba_whatsapp_sent";
+function getSentSet(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(SENT_KEY) || "[]")); } catch { return new Set(); }
+}
+function markSent(familyCode: string) {
+  const s = getSentSet(); s.add(familyCode);
+  localStorage.setItem(SENT_KEY, JSON.stringify([...s]));
+}
+
 export default function ReceptionDashboard() {
   const [search, setSearch] = useState("");
-  const [parents, setParents] = useState<any[]>([]);
+  const [parents, setParents] = useState<Parent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [newParent, setNewParent] = useState({ guardianName: "", childName: "", phone: "" });
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [showAdd, setShowAdd] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [newP, setNewP] = useState({ guardianName: "", childName: "", phone: "" });
+  const [editParent, setEditParent] = useState<Parent | null>(null);
+  const [editData, setEditData] = useState<Partial<Parent>>({});
+  const [saving, setSaving] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    setError("");
     try {
-      const headers = { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` };
+      const sentSet = getSentSet();
       const [fRes, mRes] = await Promise.all([
-        fetch(`${SUPABASE_URL}/rest/v1/families?select=id,familyCode,guardianName,guardianPhone,guardianEmail&order=id.asc&limit=500`, { headers }),
-        fetch(`${SUPABASE_URL}/rest/v1/members?select=familyId,fullName,membershipTier,policyStatus&limit=500`, { headers }),
+        fetch(`${SUPABASE_URL}/rest/v1/families?select=id,familyCode,guardianName,guardianPhone,guardianEmail&order=id.asc&limit=500`, { headers: h }),
+        fetch(`${SUPABASE_URL}/rest/v1/members?select=id,familyId,fullName,membershipTier,policyStatus&limit=500`, { headers: h }),
       ]);
       const [families, members] = await Promise.all([fRes.json(), mRes.json()]);
       const memberMap = new Map((members as any[]).map((m: any) => [m.familyId, m]));
-      const records = (families as any[]).map((f: any) => {
+      setParents((families as any[]).map((f: any) => {
         const m: any = memberMap.get(f.id) || {};
         return {
-          id: f.id, familyCode: f.familyCode,
-          guardianName: f.guardianName, phone: f.guardianPhone,
-          email: f.guardianEmail, childName: m.fullName || "",
-          membershipTier: m.membershipTier || "member",
-          policy: m.policyStatus || "pending",
-          token: f.familyCode,
+          id: f.id, familyCode: f.familyCode, guardianName: f.guardianName || "Unknown",
+          phone: f.guardianPhone || "", email: f.guardianEmail || "",
+          childName: m.fullName || "", membershipTier: m.membershipTier || "member",
+          policy: m.policyStatus || "pending", token: f.familyCode,
+          memberId: m.id || null, sent: sentSet.has(f.familyCode),
         };
-      });
-      setParents(records);
-    } catch (e: any) {
-      setError("Could not load data: " + e.message);
-    } finally {
-      setLoading(false);
-    }
+      }));
+    } catch (e: any) { toast.error("Failed to load: " + e.message); }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const handleSendWhatsApp = (parent: any) => {
+  const handleSendWhatsApp = (parent: Parent) => {
     const phone = normalizePhone(parent.phone);
     const formLink = `${window.location.origin}/parent-form?token=${parent.token}`;
-    const msg = `Hi there,\n\nPremier Ballet Academy asks you to review and update the information we have for ${parent.childName}, read the School Policy, and confirm it before submitting.\n\nPlease open your private form here:\n${formLink}\n\nThank you,\nPremier Ballet Academy`;
+    const msg = `Hi there,\n\nPremier Ballet Academy asks you to review and update the information we have for ${parent.childName || "your child"}, read the School Policy, and confirm it before submitting.\n\nPlease open your private form here:\n${formLink}\n\nThank you,\nPremier Ballet Academy`;
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank");
+    markSent(parent.familyCode);
+    setParents(prev => prev.map(p => p.familyCode === parent.familyCode ? { ...p, sent: true } : p));
   };
 
   const handleAddParent = async () => {
-    if (!newParent.childName.trim()) return alert("Please enter child name");
+    if (!newP.childName.trim()) { toast.error("Child name is required"); return; }
     setAdding(true);
     try {
-      const headers = { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, "Content-Type": "application/json", Prefer: "return=representation" };
       const code = Math.random().toString(36).substring(2, 10).toUpperCase();
+      const normalized = (newP.childName || "").toLowerCase().replace(/\s+/g, " ").trim();
+      const memberCode = "M-" + code;
       const fRes = await fetch(`${SUPABASE_URL}/rest/v1/families`, {
-        method: "POST", headers,
-        body: JSON.stringify({ familyCode: code, guardianName: newParent.guardianName || "Unknown", guardianPhone: newParent.phone || "" }),
+        method: "POST", headers: h,
+        body: JSON.stringify({ familyCode: code, guardianName: newP.guardianName || "Unknown", guardianPhone: newP.phone || "" }),
       });
+      if (!fRes.ok) { const e = await fRes.json(); throw new Error(JSON.stringify(e)); }
       const family = (await fRes.json())[0];
       await fetch(`${SUPABASE_URL}/rest/v1/members`, {
-        method: "POST", headers,
-        body: JSON.stringify({ familyId: family.id, fullName: newParent.childName, membershipTier: "member", policyStatus: "pending" }),
+        method: "POST", headers: h,
+        body: JSON.stringify({ familyId: family.id, memberCode, fullName: newP.childName.trim(), normalizedName: normalized, membershipTier: "member", policyStatus: "not_accepted", membershipStatus: "not_enrolled", paymentStatus: "inactive", renewalStatus: "expired", cardStatus: "not_issued", medicalCondition: "no", branch: "Unassigned" }),
       });
-      setShowAddForm(false);
-      setNewParent({ guardianName: "", childName: "", phone: "" });
+      toast.success(`✅ ${newP.childName} added! Family code: ${code}`);
+      setShowAdd(false);
+      setNewP({ guardianName: "", childName: "", phone: "" });
       await loadData();
-    } catch (e: any) {
-      alert("Error adding parent: " + e.message);
-    } finally {
-      setAdding(false);
-    }
+    } catch (e: any) { toast.error("Failed to add: " + e.message); }
+    finally { setAdding(false); }
   };
 
-  const filtered = parents.filter((p) => {
+  const openEdit = (p: Parent) => { setEditParent(p); setEditData({ guardianName: p.guardianName, phone: p.phone, email: p.email, childName: p.childName, membershipTier: p.membershipTier }); };
+  const saveEdit = async () => {
+    if (!editParent) return;
+    setSaving(true);
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/families?id=eq.${editParent.id}`, {
+        method: "PATCH", headers: h,
+        body: JSON.stringify({ guardianName: editData.guardianName, guardianPhone: editData.phone, guardianEmail: editData.email }),
+      });
+      if (editParent.memberId) {
+        await fetch(`${SUPABASE_URL}/rest/v1/members?id=eq.${editParent.memberId}`, {
+          method: "PATCH", headers: h,
+          body: JSON.stringify({ fullName: editData.childName, membershipTier: editData.membershipTier }),
+        });
+      }
+      toast.success("Saved!");
+      setEditParent(null);
+      await loadData();
+    } catch (e: any) { toast.error("Save failed: " + e.message); }
+    finally { setSaving(false); }
+  };
+
+  const toggleSelect = (id: number) => {
+    setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  };
+  const toggleAll = () => {
+    if (selected.size === filtered.length) setSelected(new Set());
+    else setSelected(new Set(filtered.map(p => p.id)));
+  };
+
+  const exportPDF = async () => {
+    const rows = filtered.filter(p => selected.has(p.id));
+    if (rows.length === 0) { toast.error("Select at least one record to export"); return; }
+    const { jsPDF } = await import("jspdf");
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(16);
+    doc.text("Premier Ballet Academy — Parent Report", 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Generated: ${new Date().toLocaleString()}  |  ${rows.length} records`, 14, 22);
+    autoTable(doc, {
+      startY: 28,
+      head: [["#", "Family Code", "Child Name", "Guardian", "Phone", "Email", "Policy", "Tier", "Sent"]],
+      body: rows.map((p, i) => [i + 1, p.familyCode, p.childName, p.guardianName, p.phone, p.email, p.policy === "accepted" ? "Confirmed" : "Pending", p.membershipTier === "loyalty_member" ? "Loyalty" : "Member", p.sent ? "Yes" : "No"]),
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [120, 50, 80] },
+    });
+    doc.save(`PBA-Report-${new Date().toISOString().slice(0,10)}.pdf`);
+  };
+
+  const filtered = parents.filter(p => {
     const q = search.toLowerCase();
-    return !q || [p.childName, p.guardianName, p.phone, p.familyCode, p.policy].some((v) => String(v || "").toLowerCase().includes(q));
+    return !q || [p.childName, p.guardianName, p.phone, p.familyCode, p.policy, p.email].some(v => String(v || "").toLowerCase().includes(q));
   });
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="p-6 max-w-screen-xl mx-auto space-y-5">
+      <div className="flex justify-between items-start">
         <div>
           <h1 className="text-3xl font-bold">Reception Dashboard</h1>
-          <p className="text-gray-500 text-sm mt-1">{parents.length} families loaded</p>
+          <p className="text-gray-500 text-sm mt-1">{parents.length} families · {selected.size > 0 && <span className="text-blue-600 font-medium">{selected.size} selected</span>}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap justify-end">
           <Button variant="outline" onClick={loadData} disabled={loading}>Refresh</Button>
-          <Button onClick={() => setShowAddForm(true)}>+ Add New Parent</Button>
+          {selected.size > 0 && <Button variant="outline" onClick={exportPDF} className="gap-1"><FileDown className="h-4 w-4" />Export PDF ({selected.size})</Button>}
+          <Button onClick={() => setShowAdd(true)}>+ Add New Parent</Button>
         </div>
       </div>
 
-      {showAddForm && (
-        <div className="border rounded-lg p-6 bg-gray-50 space-y-4">
-          <h2 className="text-lg font-semibold">Add New Parent</h2>
-          <div className="grid grid-cols-3 gap-4">
-            <Input placeholder="Child Name *" value={newParent.childName} onChange={(e) => setNewParent({ ...newParent, childName: e.target.value })} />
-            <Input placeholder="Guardian Name" value={newParent.guardianName} onChange={(e) => setNewParent({ ...newParent, guardianName: e.target.value })} />
-            <Input placeholder="Phone (e.g. 01012345678)" value={newParent.phone} onChange={(e) => setNewParent({ ...newParent, phone: e.target.value })} />
+      {showAdd && (
+        <div className="border rounded-lg p-5 bg-blue-50 space-y-4">
+          <h2 className="font-semibold text-lg">Add New Parent</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div><Label>Child Name *</Label><Input placeholder="e.g. Sara Ahmed" value={newP.childName} onChange={e => setNewP({...newP, childName: e.target.value})} /></div>
+            <div><Label>Guardian Name</Label><Input placeholder="e.g. Ahmed Hassan" value={newP.guardianName} onChange={e => setNewP({...newP, guardianName: e.target.value})} /></div>
+            <div><Label>Phone</Label><Input placeholder="e.g. 01012345678" value={newP.phone} onChange={e => setNewP({...newP, phone: e.target.value})} /></div>
           </div>
           <div className="flex gap-2">
-            <Button onClick={handleAddParent} disabled={adding}>{adding ? "Adding..." : "Add Parent"}</Button>
-            <Button variant="outline" onClick={() => setShowAddForm(false)}>Cancel</Button>
+            <Button onClick={handleAddParent} disabled={adding}>{adding ? <><Loader2 className="animate-spin h-4 w-4 mr-1"/>Adding...</> : "Add Parent"}</Button>
+            <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
           </div>
         </div>
       )}
 
-      <div className="flex items-center space-x-4">
-        <Input placeholder="Search by name, phone, family code..." value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-md" />
-        {search && <span className="text-sm text-gray-500">{filtered.length} results</span>}
+      <div className="flex gap-3 items-center">
+        <Input placeholder="Search name, phone, code, policy..." value={search} onChange={e => setSearch(e.target.value)} className="max-w-sm" />
+        {search && <span className="text-sm text-gray-500">{filtered.length} of {parents.length}</span>}
       </div>
 
-      {error && <div className="text-red-600 bg-red-50 p-4 rounded">{error}</div>}
-
-      <div className="border rounded-md bg-white">
+      <div className="border rounded-md bg-white overflow-auto">
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-10"><Checkbox checked={selected.size === filtered.length && filtered.length > 0} onCheckedChange={toggleAll} /></TableHead>
               <TableHead>Child Name</TableHead>
               <TableHead>Guardian</TableHead>
               <TableHead>Phone</TableHead>
               <TableHead>Policy</TableHead>
               <TableHead>Tier</TableHead>
+              <TableHead>Sent</TableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={6} className="text-center py-8"><Loader2 className="animate-spin mx-auto h-8 w-8 text-primary" /><p className="mt-2 text-gray-500">Loading families...</p></TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="text-center py-8"><Loader2 className="animate-spin mx-auto h-8 w-8 text-primary" /><p className="mt-2 text-gray-500">Loading...</p></TableCell></TableRow>
             ) : filtered.length === 0 ? (
-              <TableRow><TableCell colSpan={6} className="text-center py-8 text-gray-500">No families found.</TableCell></TableRow>
-            ) : filtered.map((parent) => (
-              <TableRow key={parent.id}>
-                <TableCell className="font-medium">{parent.childName || "-"}</TableCell>
-                <TableCell>{parent.guardianName || "Unknown"}</TableCell>
-                <TableCell>{parent.phone || "-"}</TableCell>
+              <TableRow><TableCell colSpan={8} className="text-center py-8 text-gray-500">No families found.</TableCell></TableRow>
+            ) : filtered.map(parent => (
+              <TableRow key={parent.id} className={selected.has(parent.id) ? "bg-blue-50" : ""}>
+                <TableCell><Checkbox checked={selected.has(parent.id)} onCheckedChange={() => toggleSelect(parent.id)} /></TableCell>
+                <TableCell className="font-medium">{parent.childName || "—"}</TableCell>
+                <TableCell className="text-gray-600">{parent.guardianName}</TableCell>
+                <TableCell className="text-gray-600 text-sm">{parent.phone || "—"}</TableCell>
                 <TableCell>
-                  <Badge variant={parent.policy === "accepted" ? "default" : "destructive"}>
-                    {parent.policy === "accepted" ? "Confirmed" : "Pending"}
+                  <Badge variant={parent.policy === "accepted" ? "default" : "destructive"} className="text-xs">
+                    {parent.policy === "accepted" ? "✓ Confirmed" : "Pending"}
                   </Badge>
                 </TableCell>
                 <TableCell>
-                  <Badge variant="outline" className={parent.membershipTier === "loyalty_member" ? "bg-amber-100 text-amber-800" : ""}>
-                    {parent.membershipTier === "loyalty_member" ? "Loyalty" : "Member"}
+                  <Badge variant="outline" className={`text-xs ${parent.membershipTier === "loyalty_member" ? "bg-amber-100 text-amber-800 border-amber-300" : ""}`}>
+                    {parent.membershipTier === "loyalty_member" ? "⭐ Loyalty" : "Member"}
                   </Badge>
                 </TableCell>
                 <TableCell>
-                  <Button variant="outline" size="sm" onClick={() => handleSendWhatsApp(parent)}>
-                    Send WhatsApp
-                  </Button>
+                  {parent.sent
+                    ? <span className="text-xs text-green-600 font-medium">✓ Sent</span>
+                    : <span className="text-xs text-gray-400">Not sent</span>}
+                </TableCell>
+                <TableCell>
+                  <div className="flex gap-1">
+                    <Button variant="outline" size="sm" className="text-xs h-7" onClick={() => handleSendWhatsApp(parent)}>
+                      {parent.sent ? "Resend" : "Send WhatsApp"}
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(parent)}>
+                      <Edit2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </div>
+
+      {/* EDIT MODAL */}
+      {editParent && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-bold">Edit: {editParent.childName || editParent.familyCode}</h2>
+              <button onClick={() => setEditParent(null)}><X className="h-5 w-5 text-gray-400 hover:text-gray-600" /></button>
+            </div>
+            <div className="space-y-3">
+              <div><Label>Child Name</Label><Input value={editData.childName || ""} onChange={e => setEditData({...editData, childName: e.target.value})} /></div>
+              <div><Label>Guardian Name</Label><Input value={editData.guardianName || ""} onChange={e => setEditData({...editData, guardianName: e.target.value})} /></div>
+              <div><Label>Phone</Label><Input value={editData.phone || ""} onChange={e => setEditData({...editData, phone: e.target.value})} /></div>
+              <div><Label>Email</Label><Input value={editData.email || ""} onChange={e => setEditData({...editData, email: e.target.value})} /></div>
+              <div><Label>Tier</Label>
+                <select className="w-full border rounded px-3 py-2 text-sm mt-1" value={editData.membershipTier} onChange={e => setEditData({...editData, membershipTier: e.target.value})}>
+                  <option value="member">Member</option>
+                  <option value="loyalty_member">Loyalty Member</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <Button onClick={saveEdit} disabled={saving} className="flex-1">{saving ? <><Loader2 className="animate-spin h-4 w-4 mr-1"/>Saving...</> : <><Check className="h-4 w-4 mr-1"/>Save Changes</>}</Button>
+              <Button variant="outline" onClick={() => setEditParent(null)}>Cancel</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
