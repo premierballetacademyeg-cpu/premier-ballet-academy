@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, publicProcedure } from "./_core/trpc.js";
-import { getDb } from "./db.js";
-import { members, families, cards } from "../drizzle/schema.js";
+import { getDb, getCardEmailDeliveryStatus } from "./db.js";
+import { members, families, cards, cardEmailDeliveries } from "../drizzle/schema.js";
 import { eq, desc, ilike, or } from "drizzle-orm";
 import { generateAndSendVirtualCard } from "./email.js";
 
@@ -92,6 +92,7 @@ export const appRouter = router({
       const emailSent = await generateAndSendVirtualCard(
         input.childName,
         member.memberCode,
+        member.id,
         input.isLoyaltyMember ? 'loyalty_member' : 'member',
         input.guardianEmail
       );
@@ -101,6 +102,26 @@ export const appRouter = router({
       }
 
       return { success: true, emailSent };
+    }),
+
+  cardEmailStatuses: publicProcedure
+    .query(async () => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      
+      const statuses = await db
+        .select({
+          memberId: cardEmailDeliveries.memberId,
+          status: cardEmailDeliveries.status,
+          sentAt: cardEmailDeliveries.sentAt,
+          recipientEmail: cardEmailDeliveries.recipientEmail,
+          attemptCount: cardEmailDeliveries.attemptCount,
+          lastError: cardEmailDeliveries.lastError,
+        })
+        .from(cardEmailDeliveries)
+        .orderBy(desc(cardEmailDeliveries.updatedAt));
+      
+      return statuses;
     }),
 });
 
