@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, publicProcedure } from "./_core/trpc.js";
-import { getDb, getCardEmailDeliveryStatus } from "./db.js";
+import { getDb } from "./db.js";
 import { members, families, cards, cardEmailDeliveries } from "../drizzle/schema.js";
 import { eq, desc, ilike, or } from "drizzle-orm";
 import { generateAndSendVirtualCard } from "./email.js";
