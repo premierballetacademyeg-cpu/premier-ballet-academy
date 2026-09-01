@@ -4,6 +4,9 @@ import { SANS_32_BLACK, SANS_64_BLACK } from "jimp/fonts";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
+import { getDb } from "./db.js";
+import { cardEmailDeliveries } from "../drizzle/schema.js";
+import { eq } from "drizzle-orm";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,9 +14,37 @@ const __dirname = path.dirname(__filename);
 export async function generateAndSendVirtualCard(
   childName: string,
   memberId: string,
+  membersDbId: number,
   tier: "member" | "loyalty_member",
   parentEmail: string
 ) {
+  const db = await getDb();
+  
+  // Initialize or get email delivery record
+  let deliveryRecord = null;
+  if (db) {
+    const existing = await db
+      .select()
+      .from(cardEmailDeliveries)
+      .where(eq(cardEmailDeliveries.memberId, membersDbId))
+      .limit(1);
+    
+    deliveryRecord = existing[0];
+    
+    if (!deliveryRecord) {
+      const created = await db
+        .insert(cardEmailDeliveries)
+        .values({
+          memberId: membersDbId,
+          recipientEmail: parentEmail,
+          status: "pending",
+          attemptCount: 0,
+        })
+        .returning();
+      deliveryRecord = created[0];
+    }
+  }
+
   try {
     const templateName = tier === "loyalty_member" ? "PBA - Loyalty Member.jpeg" : "PBA - Member.jpeg";
     const templatePath = path.resolve(process.cwd(), templateName);
@@ -55,6 +86,19 @@ export async function generateAndSendVirtualCard(
 
     if (!gmailUser || !gmailPass) {
       console.error("[Email] Missing GMAIL_USER or GMAIL_APP_PASSWORD env vars - cannot send virtual card email");
+      
+      // Update delivery record as failed
+      if (db && deliveryRecord) {
+        await db
+          .update(cardEmailDeliveries)
+          .set({
+            status: "failed",
+            lastError: "Missing email credentials",
+            lastAttemptAt: new Date(),
+            attemptCount: (deliveryRecord.attemptCount || 0) + 1,
+          })
+          .where(eq(cardEmailDeliveries.id, deliveryRecord.id));
+      }
       return false;
     }
 
@@ -87,9 +131,39 @@ export async function generateAndSendVirtualCard(
     });
 
     console.log(`[Email] Virtual card sent to ${parentEmail}`);
+    
+    // Update delivery record as sent
+    if (db && deliveryRecord) {
+      await db
+        .update(cardEmailDeliveries)
+        .set({
+          status: "sent",
+          sentAt: new Date(),
+          lastAttemptAt: new Date(),
+          attemptCount: (deliveryRecord.attemptCount || 0) + 1,
+          lastError: null,
+        })
+        .where(eq(cardEmailDeliveries.id, deliveryRecord.id));
+    }
+    
     return true;
   } catch (error) {
     console.error("[Email] Failed to generate/send virtual card:", error);
+    
+    // Update delivery record as failed
+    if (db && deliveryRecord) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      await db
+        .update(cardEmailDeliveries)
+        .set({
+          status: "failed",
+          lastError: errorMessage,
+          lastAttemptAt: new Date(),
+          attemptCount: (deliveryRecord.attemptCount || 0) + 1,
+        })
+        .where(eq(cardEmailDeliveries.id, deliveryRecord.id));
+    }
+    
     return false;
   }
 }
