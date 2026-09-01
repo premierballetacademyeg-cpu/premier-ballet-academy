@@ -220,6 +220,29 @@ export const cards = pgTable(
   ]
 );
 
+export const cardEmailDeliveries = pgTable(
+  "cardEmailDeliveries",
+  {
+    id: serial("id").primaryKey(),
+    memberId: integer("memberId").notNull(),
+    recipientEmail: varchar("recipientEmail", { length: 320 }).notNull(),
+    status: varchar("status", { length: 255 })
+      .default("pending")
+      .notNull(), // pending, sent, failed, bounced
+    attemptCount: integer("attemptCount").default(0).notNull(),
+    lastAttemptAt: timestamp("lastAttemptAt"),
+    lastError: text("lastError"),
+    sentAt: timestamp("sentAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("card_email_member_unique").on(table.memberId),
+    index("card_email_status_idx").on(table.status),
+    index("card_email_member_status_idx").on(table.memberId, table.status),
+  ]
+);
+
 export const offers = pgTable(
   "offers",
   {
