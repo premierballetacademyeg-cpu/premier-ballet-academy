@@ -9,6 +9,7 @@ import {
   externalSyncEvents,
   families,
   cards,
+  cardEmailDeliveries,
   members,
   notificationPreferences,
   notifications,
@@ -45,7 +46,6 @@ export async function getDb() {
   }
   return _db;
 }
-
 
 
 
@@ -275,6 +275,24 @@ export async function getOpenDuplicateReviews() {
     .innerJoin(members, eq(duplicateReviews.memberId, members.id))
     .where(eq(duplicateReviews.status, "open"))
     .orderBy(desc(duplicateReviews.confidence));
+}
+
+export async function getCardEmailDeliveryStatus(memberId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db
+    .select({
+      status: cardEmailDeliveries.status,
+      recipientEmail: cardEmailDeliveries.recipientEmail,
+      sentAt: cardEmailDeliveries.sentAt,
+      lastAttemptAt: cardEmailDeliveries.lastAttemptAt,
+      attemptCount: cardEmailDeliveries.attemptCount,
+      lastError: cardEmailDeliveries.lastError,
+    })
+    .from(cardEmailDeliveries)
+    .where(eq(cardEmailDeliveries.memberId, memberId))
+    .limit(1);
+  return result[0] ?? null;
 }
 
 export async function listOffers(activeOnly = false) {
