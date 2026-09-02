@@ -4,10 +4,7 @@
   "outputDirectory": "dist/public",
   "functions": {
     "api/index.ts": {
-      "includeFiles": [
-        "PBA - Member.jpeg",
-        "PBA - Loyalty Member.jpeg"
-      ]
+      "includeFiles": "PBA*.jpeg"
     }
   },
   "rewrites": [
