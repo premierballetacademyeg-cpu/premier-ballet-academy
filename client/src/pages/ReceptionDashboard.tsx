@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, FileDown, Edit2, X, Check, Bell } from "lucide-react";
 import { toast } from "sonner";
+import { ACADEMY_BRANCHES } from "@shared/const";
 
 const SUPABASE_URL = "https://gpdxzjnjfqfchkpqptyu.supabase.co";
 const SUPABASE_KEY = "sb_publishable_HMHsWkaV0Y0UtKHDE6T5tw_ahmNsXkM";
@@ -24,7 +25,7 @@ type Parent = {
   id: number; familyCode: string; guardianName: string; phone: string;
   email: string; childName: string; membershipTier: string; policy: string;
   token: string; memberId: number | null; sent?: boolean; updatedAt: string;
-  cardEmailStatus?: string; cardEmailSentAt?: string;
+  cardEmailStatus?: string; cardEmailSentAt?: string; branch: string;
 };
 
 const SENT_KEY = "pba_whatsapp_sent";
@@ -67,7 +68,7 @@ export default function ReceptionDashboard() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [showAdd, setShowAdd] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [newP, setNewP] = useState({ guardianName: "", childName: "", phone: "" });
+  const [newP, setNewP] = useState({ guardianName: "", childName: "", phone: "", branch: "" });
   const [editParent, setEditParent] = useState<Parent | null>(null);
   const [editData, setEditData] = useState<Partial<Parent>>({});
   const [saving, setSaving] = useState(false);
@@ -79,7 +80,7 @@ export default function ReceptionDashboard() {
       // Use limit 3000 and order by createdAt descending to ensure we get newest additions like Andy More
       const [fRes, mRes] = await Promise.all([
         fetch(`${SUPABASE_URL}/rest/v1/families?select=id,familyCode,guardianName,guardianPhone,guardianEmail,updatedAt&order=createdAt.desc&limit=3000`, { headers: h }),
-        fetch(`${SUPABASE_URL}/rest/v1/members?select=id,familyId,fullName,membershipTier,policyStatus,updatedAt&limit=3000`, { headers: h }),
+        fetch(`${SUPABASE_URL}/rest/v1/members?select=id,familyId,fullName,membershipTier,policyStatus,updatedAt,branch&limit=3000`, { headers: h }),
       ]);
       const [families, members] = await Promise.all([fRes.json(), mRes.json()]);
       const memberMap = new Map((members as any[]).map((m: any) => [m.familyId, m]));
@@ -113,6 +114,7 @@ export default function ReceptionDashboard() {
           updatedAt: m.updatedAt > f.updatedAt ? m.updatedAt : f.updatedAt,
           cardEmailStatus: cardEmail?.status,
           cardEmailSentAt: cardEmail?.sentAt,
+          branch: m.branch || "Unassigned",
         };
       }));
     } catch (e: any) { toast.error("Failed to load: " + e.message); }
@@ -132,6 +134,7 @@ export default function ReceptionDashboard() {
 
   const handleAddParent = async () => {
     if (!newP.childName.trim()) { toast.error("Child name is required"); return; }
+    if (!newP.branch) { toast.error("Branch is required"); return; }
     setAdding(true);
     try {
       const code = Math.random().toString(36).substring(2, 10).toUpperCase();
@@ -157,18 +160,18 @@ export default function ReceptionDashboard() {
           renewalStatus: "expired",
           cardStatus: "not_issued",
           medicalCondition: "no",
-          branch: "Unassigned",
+          branch: newP.branch,
         }),
       });
       toast.success(`✅ ${newP.childName} added! Family code: ${code}`);
       setShowAdd(false);
-      setNewP({ guardianName: "", childName: "", phone: "" });
+      setNewP({ guardianName: "", childName: "", phone: "", branch: "" });
       await loadData();
     } catch (e: any) { toast.error("Failed to add: " + e.message); }
     finally { setAdding(false); }
   };
 
-  const openEdit = (p: Parent) => { setEditParent(p); setEditData({ guardianName: p.guardianName, phone: p.phone, email: p.email, childName: p.childName, membershipTier: p.membershipTier }); };
+  const openEdit = (p: Parent) => { setEditParent(p); setEditData({ guardianName: p.guardianName, phone: p.phone, email: p.email, childName: p.childName, membershipTier: p.membershipTier, branch: p.branch }); };
   const saveEdit = async () => {
     if (!editParent) return;
     setSaving(true);
@@ -180,7 +183,7 @@ export default function ReceptionDashboard() {
       if (editParent.memberId) {
         await fetch(`${SUPABASE_URL}/rest/v1/members?id=eq.${editParent.memberId}`, {
           method: "PATCH", headers: h,
-          body: JSON.stringify({ fullName: editData.childName, membershipTier: editData.membershipTier }),
+          body: JSON.stringify({ fullName: editData.childName, membershipTier: editData.membershipTier, branch: editData.branch }),
         });
       }
       toast.success("Saved!");
@@ -212,8 +215,8 @@ export default function ReceptionDashboard() {
     doc.text(`Generated: ${new Date().toLocaleString()}  |  ${rowsToExport.length} records`, 14, 22);
     autoTable(doc, {
       startY: 28,
-      head: [["#", "Family Code", "Child Name", "Guardian", "Phone", "Email", "Policy", "Tier", "WhatsApp Sent", "Card Email"]],
-      body: rowsToExport.map((p, i) => [i + 1, p.familyCode, p.childName, p.guardianName, p.phone, p.email, p.policy === "accepted" ? "Confirmed" : "Pending", p.membershipTier === "loyalty_member" ? "⭐ Loyalty" : "Member", p.sent ? "✓ Sent" : "Not sent", formatCardEmailStatus(p.cardEmailStatus, p.cardEmailSentAt)]),
+      head: [["#", "Family Code", "Child Name", "Guardian", "Phone", "Branch", "Email", "Policy", "Tier", "WhatsApp Sent", "Card Email"]],
+      body: rowsToExport.map((p, i) => [i + 1, p.familyCode, p.childName, p.guardianName, p.phone, p.branch === "Zayed" ? "Sheikh Zayed" : p.branch, p.email, p.policy === "accepted" ? "Confirmed" : "Pending", p.membershipTier === "loyalty_member" ? "⭐ Loyalty" : "Member", p.sent ? "✓ Sent" : "Not sent", formatCardEmailStatus(p.cardEmailStatus, p.cardEmailSentAt)]),
       styles: { fontSize: 8 },
       headStyles: { fillColor: [120, 50, 80] },
     });
@@ -253,10 +256,19 @@ export default function ReceptionDashboard() {
       {showAdd && (
         <div className="border rounded-lg p-5 bg-blue-50 space-y-4 shadow-sm">
           <h2 className="font-semibold text-lg">Add New Parent</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <div><Label>Child Name *</Label><Input placeholder="e.g. Sara Ahmed" value={newP.childName} onChange={e => setNewP({...newP, childName: e.target.value})} /></div>
             <div><Label>Guardian Name</Label><Input placeholder="e.g. Ahmed Hassan" value={newP.guardianName} onChange={e => setNewP({...newP, guardianName: e.target.value})} /></div>
             <div><Label>Phone</Label><Input placeholder="e.g. 01012345678" value={newP.phone} onChange={e => setNewP({...newP, phone: e.target.value})} /></div>
+            <div>
+              <Label>Branch *</Label>
+              <select className="w-full border rounded-md px-3 py-2 text-sm mt-1 bg-white h-10" value={newP.branch} onChange={e => setNewP({...newP, branch: e.target.value})}>
+                <option value="" disabled>Select branch</option>
+                {ACADEMY_BRANCHES.map(branch => (
+                  <option key={branch} value={branch}>{branch === "Zayed" ? "Sheikh Zayed" : branch}</option>
+                ))}
+              </select>
+            </div>
           </div>
           <div className="flex gap-2">
             <Button onClick={handleAddParent} disabled={adding}>{adding ? <><Loader2 className="animate-spin h-4 w-4 mr-1"/>Adding...</> : "Add Parent"}</Button>
@@ -278,6 +290,7 @@ export default function ReceptionDashboard() {
               <TableHead>Child Name</TableHead>
               <TableHead>Guardian</TableHead>
               <TableHead>Phone</TableHead>
+              <TableHead>Branch</TableHead>
               <TableHead>Policy Status</TableHead>
               <TableHead>Tier</TableHead>
               <TableHead>WhatsApp Sent</TableHead>
@@ -287,9 +300,9 @@ export default function ReceptionDashboard() {
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={9} className="text-center py-12"><Loader2 className="animate-spin mx-auto h-8 w-8 text-primary" /><p className="mt-2 text-gray-500 font-medium">Loading Database...</p></TableCell></TableRow>
+              <TableRow><TableCell colSpan={10} className="text-center py-12"><Loader2 className="animate-spin mx-auto h-8 w-8 text-primary" /><p className="mt-2 text-gray-500 font-medium">Loading Database...</p></TableCell></TableRow>
             ) : filtered.length === 0 ? (
-              <TableRow><TableCell colSpan={9} className="text-center py-12 text-gray-500">No families found.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={10} className="text-center py-12 text-gray-500">No families found.</TableCell></TableRow>
             ) : filtered.map(parent => (
               <TableRow key={parent.id} className={selected.has(parent.id) ? "bg-blue-50" : ""}>
                 <TableCell><Checkbox checked={selected.has(parent.id)} onCheckedChange={() => toggleSelect(parent.id)} /></TableCell>
@@ -299,6 +312,7 @@ export default function ReceptionDashboard() {
                 </TableCell>
                 <TableCell className="text-gray-700">{parent.guardianName}</TableCell>
                 <TableCell className="text-gray-600 text-sm">{parent.phone || "—"}</TableCell>
+                <TableCell className="text-gray-700 text-sm">{parent.branch === "Zayed" ? "Sheikh Zayed" : parent.branch}</TableCell>
                 <TableCell>
                   <Badge variant={parent.policy === "accepted" ? "default" : "destructive"} className={parent.policy === "accepted" ? "bg-green-600 hover:bg-green-700" : ""}>
                     {parent.policy === "accepted" ? "✓ Confirmed" : "Pending"}
@@ -353,6 +367,15 @@ export default function ReceptionDashboard() {
                 <select className="w-full border rounded-md px-3 py-2 text-sm mt-1 bg-white" value={editData.membershipTier} onChange={e => setEditData({...editData, membershipTier: e.target.value})}>
                   <option value="member">Member</option>
                   <option value="loyalty_member">Loyalty Member</option>
+                </select>
+              </div>
+              <div>
+                <Label className="text-gray-700">Branch</Label>
+                <select className="w-full border rounded-md px-3 py-2 text-sm mt-1 bg-white" value={editData.branch || ""} onChange={e => setEditData({...editData, branch: e.target.value})}>
+                  <option value="" disabled>Select branch</option>
+                  {ACADEMY_BRANCHES.map(branch => (
+                    <option key={branch} value={branch}>{branch === "Zayed" ? "Sheikh Zayed" : branch}</option>
+                  ))}
                 </select>
               </div>
             </div>
