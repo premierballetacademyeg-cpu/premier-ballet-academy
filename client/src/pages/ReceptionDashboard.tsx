@@ -145,7 +145,20 @@ export default function ReceptionDashboard() {
       const family = (await fRes.json())[0];
       await fetch(`${SUPABASE_URL}/rest/v1/members`, {
         method: "POST", headers: h,
-        body: JSON.stringify({ familyId: family.id, memberCode, fullName: newP.childName.trim(), normalizedName: normalized, membershipTier: "member", policyStatus: "not_accepted", membershipStatus: "not_enrolled", paymentStatus: "inactive", renewalStatus: "expired", cardStatus: "not_issued", medicalCondition: "no", branch: "Unassigned" }),
+        body: JSON.stringify({
+          familyId: family.id,
+          memberCode,
+          fullName: newP.childName.trim(),
+          normalizedName: normalized,
+          membershipTier: "member",
+          policyStatus: "not_accepted",
+          membershipStatus: "not_enrolled",
+          paymentStatus: "inactive",
+          renewalStatus: "expired",
+          cardStatus: "not_issued",
+          medicalCondition: "no",
+          branch: "Unassigned",
+        }),
       });
       toast.success(`✅ ${newP.childName} added! Family code: ${code}`);
       setShowAdd(false);
