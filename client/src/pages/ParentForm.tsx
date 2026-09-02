@@ -100,6 +100,7 @@ export default function ParentForm() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           childName: formData.childName,
+          guardianName: formData.guardianName,
           memberId: `M-${token}`,
           tier: formData.isLoyaltyMember ? "loyalty_member" : "member",
           guardianEmail: formData.guardianEmail

@@ -20,18 +20,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // the public path or /api/index.ts. The method is the reliable discriminator.
   if (req.method === "POST") {
     try {
-      const { childName, memberId, tier, guardianEmail } = req.body || {};
+      const { childName, guardianName, memberId, tier, guardianEmail } = req.body || {};
 
       if (
         typeof childName !== "string" ||
         !childName.trim() ||
+        typeof guardianName !== "string" ||
+        !guardianName.trim() ||
         typeof memberId !== "string" ||
         !memberId.trim() ||
         !["member", "loyalty_member"].includes(tier) ||
         typeof guardianEmail !== "string" ||
         !guardianEmail.trim()
       ) {
-        return res.status(400).json({ error: "childName, memberId, tier, and guardianEmail are required" });
+        return res.status(400).json({ error: "childName, guardianName, memberId, tier, and guardianEmail are required" });
       }
 
       const templateName = tier === "loyalty_member" ? "PBA - Loyalty Member.jpeg" : "PBA - Member.jpeg";
@@ -52,18 +54,47 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // and include Jimp's internal font asset files automatically, which
       // caused an ENOENT at runtime. Vendoring them lets us list the exact
       // path in vercel.json's functions.includeFiles.
-      const bigFontPath = fs.existsSync(path.resolve(process.cwd(), "assets/fonts/open-sans-64-black/open-sans-64-black.fnt"))
-        ? path.resolve(process.cwd(), "assets/fonts/open-sans-64-black/open-sans-64-black.fnt")
-        : path.resolve(__dirname, "..", "assets/fonts/open-sans-64-black/open-sans-64-black.fnt");
-      const smallFontPath = fs.existsSync(path.resolve(process.cwd(), "assets/fonts/open-sans-32-black/open-sans-32-black.fnt"))
-        ? path.resolve(process.cwd(), "assets/fonts/open-sans-32-black/open-sans-32-black.fnt")
-        : path.resolve(__dirname, "..", "assets/fonts/open-sans-32-black/open-sans-32-black.fnt");
+      // The cards print in WHITE — both templates are dark, so black ink
+      // (the old font set) was essentially invisible on them.
+      const resolveFont = (name: string) =>
+        fs.existsSync(path.resolve(process.cwd(), `assets/fonts/${name}/${name}.fnt`))
+          ? path.resolve(process.cwd(), `assets/fonts/${name}/${name}.fnt`)
+          : path.resolve(__dirname, "..", `assets/fonts/${name}/${name}.fnt`);
 
-      const font = await Jimp.loadFont(bigFontPath);
-      const smallFont = await Jimp.loadFont(smallFontPath);
+      const font64 = await Jimp.loadFont(resolveFont("open-sans-64-white"));
+      const font32 = await Jimp.loadFont(resolveFont("open-sans-32-white"));
 
-      image.print(font, 200, 350, childName);
-      image.print(smallFont, 200, 450, `Member ID: ${memberId}`);
+      // Text positions are calibrated to each blank template's "PARENT NAME" /
+      // "STUDENT NAME" / "MEMBER ID #" label placement. The two templates use
+      // different type scales, so the coordinates and font sizes differ.
+      const layout =
+        tier === "loyalty_member"
+          ? {
+              guardian: { font: font32, x: 118, y: 420, maxWidth: 1000 },
+              child: { font: font32, x: 118, y: 548, maxWidth: 1000 },
+              id: { font: font32, x: 113, y: 690, maxWidth: 1000 },
+            }
+          : {
+              guardian: { font: font64, x: 95, y: 422, maxWidth: 1030, fallbackFont: font32, fallbackY: 440 },
+              child: { font: font64, x: 95, y: 598, maxWidth: 1030, fallbackFont: font32, fallbackY: 616 },
+              id: { font: font64, x: 95, y: 768, maxWidth: 1030, fallbackFont: font32, fallbackY: 786 },
+            };
+
+      const printField = (
+        field: { font: any; x: number; y: number; maxWidth: number; fallbackFont?: any; fallbackY?: number },
+        text: string
+      ) => {
+        const width = Jimp.measureText(field.font, text);
+        if (width > field.maxWidth && field.fallbackFont) {
+          image.print(field.fallbackFont, field.x, field.fallbackY!, text);
+        } else {
+          image.print(field.font, field.x, field.y, text);
+        }
+      };
+
+      printField(layout.guardian, guardianName.trim());
+      printField(layout.child, childName.trim());
+      printField(layout.id, memberId.trim());
 
       const buffer = await image.getBufferAsync(Jimp.MIME_JPEG);
 
