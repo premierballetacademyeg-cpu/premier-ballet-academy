@@ -15,18 +15,58 @@ const h = { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, "Cont
 
 function normalizePhone(phone: string) {
   let d = (phone || "").replace(/\D/g, "");
+  if (!d) return "";
+  if (d.startsWith("00")) d = d.substring(2);
+  if (d.startsWith("020")) d = d.substring(1);
   if (d.startsWith("200")) d = "20" + d.substring(3);
-  else if (d.startsWith("0")) d = "20" + d.substring(1);
-  else if (!d.startsWith("20")) d = "20" + d;
+  if (d.startsWith("0") && !d.startsWith("20")) d = "20" + d.substring(1);
+  if (!d.startsWith("20")) d = "20" + d;
   return d;
+}
+
+// A valid Egyptian mobile number, once normalized, is "20" + a 10-digit local
+// number starting with one of the four real mobile prefixes (010/011/012/015).
+// Numbers that got mangled on the way in (Excel scientific notation, a
+// truncated leading zero, a stray digit) fail this and are flagged in the UI
+// instead of silently producing a broken WhatsApp link.
+function isValidPhone(phone: string) {
+  return /^20(10|11|12|15)\d{8}$/.test(normalizePhone(phone));
 }
 
 type Parent = {
   id: number; familyCode: string; guardianName: string; phone: string;
   email: string; childName: string; membershipTier: string; policy: string;
   token: string; memberId: number | null; sent?: boolean; updatedAt: string;
-  cardEmailStatus?: string; cardEmailSentAt?: string; branch: string;
+  cardEmailStatus?: string; cardEmailSentAt?: string; branch: string; createdAt: string;
 };
+
+const REPORT_FIELDS: { key: string; label: string }[] = [
+  { key: "familyCode", label: "Family Code" },
+  { key: "childName", label: "Child Name" },
+  { key: "guardianName", label: "Guardian Name" },
+  { key: "phone", label: "Phone" },
+  { key: "phoneValid", label: "Phone Valid?" },
+  { key: "branch", label: "Branch" },
+  { key: "email", label: "Email" },
+  { key: "policy", label: "Policy Status" },
+  { key: "membershipTier", label: "Membership Tier" },
+  { key: "sent", label: "WhatsApp Sent" },
+  { key: "cardEmailStatus", label: "Card Email Status" },
+  { key: "createdAt", label: "Date Added" },
+];
+
+function formatReportValue(key: string, p: Parent): string {
+  switch (key) {
+    case "branch": return p.branch === "Zayed" ? "Sheikh Zayed" : p.branch;
+    case "policy": return p.policy === "accepted" ? "Confirmed" : "Pending";
+    case "membershipTier": return p.membershipTier === "loyalty_member" ? "Loyalty" : "Member";
+    case "sent": return p.sent ? "Sent" : "Not sent";
+    case "cardEmailStatus": return formatCardEmailStatus(p.cardEmailStatus, p.cardEmailSentAt);
+    case "phoneValid": return p.phone ? (isValidPhone(p.phone) ? "Yes" : "No — check number") : "No phone";
+    case "createdAt": return p.createdAt ? new Date(p.createdAt).toLocaleDateString() : "—";
+    default: return String((p as any)[key] ?? "—");
+  }
+}
 
 const SENT_KEY = "pba_whatsapp_sent";
 function getSentSet(): Set<string> {
@@ -72,6 +112,10 @@ export default function ReceptionDashboard() {
   const [editParent, setEditParent] = useState<Parent | null>(null);
   const [editData, setEditData] = useState<Partial<Parent>>({});
   const [saving, setSaving] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [reportFields, setReportFields] = useState<Set<string>>(new Set(REPORT_FIELDS.map(f => f.key)));
+  const [reportFrom, setReportFrom] = useState("");
+  const [reportTo, setReportTo] = useState("");
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -79,7 +123,7 @@ export default function ReceptionDashboard() {
       const sentSet = getSentSet();
       // Use limit 3000 and order by createdAt descending to ensure we get newest additions like Andy More
       const [fRes, mRes] = await Promise.all([
-        fetch(`${SUPABASE_URL}/rest/v1/families?select=id,familyCode,guardianName,guardianPhone,guardianEmail,updatedAt&order=createdAt.desc&limit=3000`, { headers: h }),
+        fetch(`${SUPABASE_URL}/rest/v1/families?select=id,familyCode,guardianName,guardianPhone,guardianEmail,updatedAt,createdAt&order=createdAt.desc&limit=3000`, { headers: h }),
         fetch(`${SUPABASE_URL}/rest/v1/members?select=id,familyId,fullName,membershipTier,policyStatus,updatedAt,branch&limit=3000`, { headers: h }),
       ]);
       const [families, members] = await Promise.all([fRes.json(), mRes.json()]);
@@ -115,6 +159,7 @@ export default function ReceptionDashboard() {
           cardEmailStatus: cardEmail?.status,
           cardEmailSentAt: cardEmail?.sentAt,
           branch: m.branch || "Unassigned",
+          createdAt: f.createdAt,
         };
       }));
     } catch (e: any) { toast.error("Failed to load: " + e.message); }
@@ -201,27 +246,44 @@ export default function ReceptionDashboard() {
     else setSelected(new Set(filtered.map(p => p.id)));
   };
 
-  const exportPDF = async () => {
-    // If no specific rows are checked, export ALL currently filtered rows
-    const rowsToExport = selected.size > 0 ? filtered.filter(p => selected.has(p.id)) : filtered;
-    if (rowsToExport.length === 0) { toast.error("No records found to export."); return; }
-    
+  const toggleReportField = (key: string) => {
+    setReportFields(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
+  };
+
+  const generateReport = async () => {
+    const fieldsToInclude = REPORT_FIELDS.filter(f => reportFields.has(f.key));
+    if (fieldsToInclude.length === 0) { toast.error("Select at least one field."); return; }
+
+    const fromDate = reportFrom ? new Date(reportFrom) : null;
+    const toDate = reportTo ? new Date(reportTo + "T23:59:59") : null;
+    const rows = parents.filter(p => {
+      if (!fromDate && !toDate) return true;
+      const created = p.createdAt ? new Date(p.createdAt) : null;
+      if (!created) return false;
+      if (fromDate && created < fromDate) return false;
+      if (toDate && created > toDate) return false;
+      return true;
+    });
+    if (rows.length === 0) { toast.error("No records found in that date range."); return; }
+
     const { jsPDF } = await import("jspdf");
     const autoTable = (await import("jspdf-autotable")).default;
     const doc = new jsPDF({ orientation: "landscape" });
     doc.setFontSize(16);
-    doc.text("Premier Ballet Academy — Parent Report", 14, 15);
+    doc.text("Premier Ballet Academy — Report", 14, 15);
     doc.setFontSize(10);
-    doc.text(`Generated: ${new Date().toLocaleString()}  |  ${rowsToExport.length} records`, 14, 22);
+    const rangeLabel = fromDate || toDate ? `Range: ${reportFrom || "start"} to ${reportTo || "today"}` : "Range: All time";
+    doc.text(`Generated: ${new Date().toLocaleString()}  |  ${rangeLabel}  |  ${rows.length} records`, 14, 22);
     autoTable(doc, {
       startY: 28,
-      head: [["#", "Family Code", "Child Name", "Guardian", "Phone", "Branch", "Email", "Policy", "Tier", "WhatsApp Sent", "Card Email"]],
-      body: rowsToExport.map((p, i) => [i + 1, p.familyCode, p.childName, p.guardianName, p.phone, p.branch === "Zayed" ? "Sheikh Zayed" : p.branch, p.email, p.policy === "accepted" ? "Confirmed" : "Pending", p.membershipTier === "loyalty_member" ? "⭐ Loyalty" : "Member", p.sent ? "✓ Sent" : "Not sent", formatCardEmailStatus(p.cardEmailStatus, p.cardEmailSentAt)]),
+      head: [["#", ...fieldsToInclude.map(f => f.label)]],
+      body: rows.map((p, i) => [i + 1, ...fieldsToInclude.map(f => formatReportValue(f.key, p))]),
       styles: { fontSize: 8 },
       headStyles: { fillColor: [120, 50, 80] },
     });
-    doc.save(`PBA-Report-${new Date().toISOString().slice(0,10)}.pdf`);
-    toast.success(`Exported ${rowsToExport.length} records to PDF!`);
+    doc.save(`PBA-Report-${new Date().toISOString().slice(0, 10)}.pdf`);
+    toast.success(`Generated report with ${rows.length} records!`);
+    setShowReport(false);
   };
 
   const filtered = parents.filter(p => {
@@ -245,9 +307,9 @@ export default function ReceptionDashboard() {
         </div>
         <div className="flex gap-2 flex-wrap justify-end">
           <Button variant="outline" onClick={loadData} disabled={loading}>Refresh</Button>
-          <Button variant="secondary" onClick={exportPDF} className="gap-1 bg-gray-100 hover:bg-gray-200">
+          <Button variant="secondary" onClick={() => setShowReport(true)} className="gap-1 bg-gray-100 hover:bg-gray-200">
             <FileDown className="h-4 w-4" />
-            {selected.size > 0 ? `Export PDF (${selected.size})` : "Export Filtered to PDF"}
+            Report
           </Button>
           <Button onClick={() => setShowAdd(true)}>+ Add New Parent</Button>
         </div>
@@ -273,6 +335,32 @@ export default function ReceptionDashboard() {
           <div className="flex gap-2">
             <Button onClick={handleAddParent} disabled={adding}>{adding ? <><Loader2 className="animate-spin h-4 w-4 mr-1"/>Adding...</> : "Add Parent"}</Button>
             <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
+          </div>
+        </div>
+      )}
+
+      {showReport && (
+        <div className="border rounded-lg p-5 bg-purple-50 space-y-4 shadow-sm">
+          <h2 className="font-semibold text-lg">Custom Report</h2>
+          <div>
+            <Label className="mb-2 block">Fields to include</Label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {REPORT_FIELDS.map(field => (
+                <label key={field.key} className="flex items-center gap-2 text-sm bg-white rounded-md border px-2 py-1.5 cursor-pointer">
+                  <Checkbox checked={reportFields.has(field.key)} onCheckedChange={() => toggleReportField(field.key)} />
+                  {field.label}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-md">
+            <div><Label>From date</Label><Input type="date" value={reportFrom} onChange={e => setReportFrom(e.target.value)} /></div>
+            <div><Label>To date</Label><Input type="date" value={reportTo} onChange={e => setReportTo(e.target.value)} /></div>
+          </div>
+          <p className="text-xs text-gray-500">Leave both dates empty to include all records regardless of when they were added.</p>
+          <div className="flex gap-2">
+            <Button onClick={generateReport}>Generate PDF</Button>
+            <Button variant="outline" onClick={() => setShowReport(false)}>Cancel</Button>
           </div>
         </div>
       )}
@@ -311,7 +399,14 @@ export default function ReceptionDashboard() {
                   {isRecentlySubmitted(parent) && <span className="ml-2 inline-flex items-center text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider"><Bell className="w-3 h-3 mr-0.5" />New</span>}
                 </TableCell>
                 <TableCell className="text-gray-700">{parent.guardianName}</TableCell>
-                <TableCell className="text-gray-600 text-sm">{parent.phone || "—"}</TableCell>
+                <TableCell className="text-gray-600 text-sm">
+                  {parent.phone ? (
+                    <span className={!isValidPhone(parent.phone) ? "text-red-600 font-medium" : ""}>
+                      {parent.phone}
+                      {!isValidPhone(parent.phone) && <span title="This doesn't look like a valid Egyptian mobile number — WhatsApp messages to it will likely fail." className="ml-1">⚠️</span>}
+                    </span>
+                  ) : "—"}
+                </TableCell>
                 <TableCell className="text-gray-700 text-sm">{parent.branch === "Zayed" ? "Sheikh Zayed" : parent.branch}</TableCell>
                 <TableCell>
                   <Badge variant={parent.policy === "accepted" ? "default" : "destructive"} className={parent.policy === "accepted" ? "bg-green-600 hover:bg-green-700" : ""}>
